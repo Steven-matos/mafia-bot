@@ -1,6 +1,84 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Add PSN field to users table
+ALTER TABLE users ADD COLUMN psn TEXT;
+ALTER TABLE users ADD CONSTRAINT users_psn_unique UNIQUE (psn);
+CREATE INDEX idx_users_psn ON users(psn);
+
+-- Modify turfs table for variable income
+ALTER TABLE turfs ADD COLUMN base_income INTEGER NOT NULL DEFAULT 1000;
+ALTER TABLE turfs ADD COLUMN income_multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00;
+ALTER TABLE turfs DROP COLUMN income;
+ALTER TABLE turfs ADD CONSTRAINT positive_base_income CHECK (base_income >= 0);
+ALTER TABLE turfs ADD CONSTRAINT positive_income_multiplier CHECK (income_multiplier > 0);
+
+-- Servers table (must be first since it's referenced by many other tables)
+CREATE TABLE servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_family_server BOOLEAN DEFAULT FALSE,
+    family_id UUID,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Users table (must be early since it's referenced by many other tables)
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    psn TEXT NOT NULL UNIQUE,
+    family_id UUID,
+    family_rank_id UUID,
+    money INTEGER DEFAULT 0,
+    bank INTEGER DEFAULT 0,
+    last_daily TIMESTAMP WITH TIME ZONE,
+    last_work TIMESTAMP WITH TIME ZONE,
+    last_rob TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Families table
+CREATE TABLE families (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    leader_id TEXT REFERENCES users(id),
+    family_money INTEGER DEFAULT 0,
+    reputation INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    description TEXT,
+    main_server_id TEXT REFERENCES servers(id)
+);
+
+-- Now we can add the foreign key constraints to servers and users
+ALTER TABLE servers
+ADD CONSTRAINT fk_servers_family
+FOREIGN KEY (family_id) REFERENCES families(id);
+
+ALTER TABLE users
+ADD CONSTRAINT fk_users_family
+FOREIGN KEY (family_id) REFERENCES families(id);
+
+-- Create family_ranks table
+CREATE TABLE family_ranks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    family_id UUID REFERENCES families(id),
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    rank_order INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(family_id, name)
+);
+
+-- Now we can add the family_rank_id foreign key to users
+ALTER TABLE users
+ADD CONSTRAINT fk_users_family_rank
+FOREIGN KEY (family_rank_id) REFERENCES family_ranks(id);
+
 -- Create mod_logs table for audit logging
 CREATE TABLE mod_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -24,16 +102,6 @@ CREATE TABLE security_settings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Servers table
-CREATE TABLE servers (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    is_family_server BOOLEAN DEFAULT FALSE,
-    family_id UUID REFERENCES families(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
 -- Bot channels table
 CREATE TABLE bot_channels (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -49,21 +117,6 @@ CREATE TABLE bot_channels (
     UNIQUE(server_id, channel_id, announcement_type)
 );
 
--- Users table
-CREATE TABLE users (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    family_id UUID REFERENCES families(id),
-    family_rank_id UUID REFERENCES family_ranks(id),
-    money INTEGER DEFAULT 0,
-    bank INTEGER DEFAULT 0,
-    last_daily TIMESTAMP WITH TIME ZONE,
-    last_work TIMESTAMP WITH TIME ZONE,
-    last_rob TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
 -- User servers table (for tracking which servers a user is in)
 CREATE TABLE user_servers (
     user_id TEXT REFERENCES users(id),
@@ -73,26 +126,13 @@ CREATE TABLE user_servers (
     PRIMARY KEY (user_id, server_id)
 );
 
--- Families table
-CREATE TABLE families (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name TEXT NOT NULL,
-    leader_id TEXT REFERENCES users(id),
-    family_money INTEGER DEFAULT 0,
-    reputation INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    description TEXT,
-    main_server_id TEXT REFERENCES servers(id)
-);
-
 -- Family members table
 CREATE TABLE family_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     family_id UUID REFERENCES families(id) ON DELETE CASCADE,
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     rank_id UUID REFERENCES family_ranks(id),
-    regime_id UUID REFERENCES regimes(id) ON DELETE SET NULL,
+    regime_id UUID,
     joined_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     UNIQUE(family_id, user_id)
 );
@@ -102,7 +142,8 @@ CREATE TABLE turfs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     description TEXT,
-    income INTEGER NOT NULL,
+    base_income INTEGER NOT NULL DEFAULT 1000,
+    income_multiplier DECIMAL(5,2) NOT NULL DEFAULT 1.00,
     family_id UUID REFERENCES families(id),
     captured_at TIMESTAMP WITH TIME ZONE,
     last_income_collected TIMESTAMP WITH TIME ZONE,
@@ -264,19 +305,6 @@ CREATE TABLE family_relationships (
     UNIQUE(family_id, target_family_id)
 );
 
--- Create family_ranks table
-CREATE TABLE family_ranks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    family_id UUID REFERENCES families(id),
-    name TEXT NOT NULL,
-    display_name TEXT NOT NULL,
-    emoji TEXT NOT NULL,
-    rank_order INTEGER NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(family_id, name)
-);
-
 -- Create mentorship table
 CREATE TABLE IF NOT EXISTS mentorships (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -332,6 +360,11 @@ CREATE TABLE IF NOT EXISTS regimes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(family_id, name)
 );
+
+-- Now we can add the regime_id foreign key to family_members
+ALTER TABLE family_members
+ADD CONSTRAINT fk_family_members_regime
+FOREIGN KEY (regime_id) REFERENCES regimes(id) ON DELETE SET NULL;
 
 -- Assignments table
 CREATE TABLE IF NOT EXISTS assignments (
