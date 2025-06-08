@@ -128,17 +128,17 @@ class SupabaseClient:
 
         return await self._execute_with_rate_limit('write', server_id, _register)
 
-    async def get_server_settings(self, server_id: str) -> Optional[Dict]:
-        """Get server settings."""
-        async def _get_settings():
-            try:
-                response = self.client.table("server_settings").select("*").eq("server_id", server_id).execute()
-                return response.data[0] if response.data else None
-            except Exception as e:
-                logger.error(f"Error getting server settings: {e}")
-                return None
-
-        return await self._execute_with_rate_limit('read', server_id, _get_settings)
+    def get_server_settings(self, server_id: str) -> Optional[Dict]:
+        """Get server settings from the database."""
+        try:
+            response = self.client.table("server_settings") \
+                .select("*") \
+                .eq("server_id", server_id) \
+                .execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Error getting server settings: {str(e)}")
+            return None
 
     async def update_server_settings(self, server_id: str, settings: Dict) -> bool:
         """Update server settings."""
@@ -206,6 +206,7 @@ class SupabaseClient:
                 data = {
                     "id": user_id,
                     "username": username,
+                    "psn": None,  # PSN will be set later
                     "money": 0,
                     "bank": 0,
                     "reputation": 0,
@@ -407,10 +408,10 @@ class SupabaseClient:
             print(f"Error unbanning user: {str(e)}")
             return False
 
-    async def get_banned_users(self, server_id: str) -> List[Dict]:
+    def get_banned_users(self, server_id: str) -> List[Dict]:
         """Get all banned users for a server."""
         try:
-            response = await self.client.table("banned_users") \
+            response = self.client.table("banned_users") \
                 .select("*") \
                 .eq("server_id", server_id) \
                 .execute()

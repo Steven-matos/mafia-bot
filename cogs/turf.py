@@ -6,6 +6,7 @@ from db.supabase_client import supabase
 import logging
 import random
 from typing import Optional
+from utils.checks import is_family_member
 
 logger = logging.getLogger('mafia-bot')
 
@@ -102,14 +103,15 @@ class Turf(commands.Cog):
         except Exception as e:
             await ctx.send(f"An error occurred: {str(e)}")
 
-    @turf.command(name="capture")
+    @commands.command(name="capture")
+    @is_family_member()
     async def capture_turf(self, ctx, turf_name: str):
-        """Attempt to capture a turf for your family."""
+        """Capture a turf for your family."""
         try:
             # Get server settings
-            settings = await supabase.get_server_settings(str(ctx.guild.id))
+            settings = supabase.get_server_settings(str(ctx.guild.id))
             if not settings:
-                await ctx.send("Server settings not found!")
+                await ctx.send("Server settings not found! Please contact an administrator.")
                 return
 
             # Check if user is in a family
@@ -149,6 +151,22 @@ class Turf(commands.Cog):
                 await ctx.send(embed=embed)
             else:
                 await ctx.send("Failed to capture turf. Please try again.")
+        except Exception as e:
+            await ctx.send(f"An error occurred: {str(e)}")
+
+    @commands.command(name="defend")
+    @is_family_member()
+    async def defend_turf(self, ctx, turf_name: str):
+        """Defend your family's turf from capture."""
+        try:
+            # Get server settings
+            settings = supabase.get_server_settings(str(ctx.guild.id))
+            if not settings:
+                await ctx.send("Server settings not found! Please contact an administrator.")
+                return
+
+            # Rest of the command implementation...
+            # ... existing code ...
         except Exception as e:
             await ctx.send(f"An error occurred: {str(e)}")
 

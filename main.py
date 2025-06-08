@@ -43,6 +43,7 @@ INITIAL_EXTENSIONS = [
     'cogs.mentorship',
     'cogs.recruitment',
     'cogs.assignments',
+    'cogs.meetings',
     'cogs.help'
 ]
 
@@ -98,7 +99,7 @@ async def on_command(ctx):
             return
 
         # Check if user is banned in this server
-        banned_users = await supabase.get_banned_users(str(ctx.guild.id))
+        banned_users = supabase.get_banned_users(str(ctx.guild.id))
         if any(ban["user_id"] == str(ctx.author.id) for ban in banned_users):
             await ctx.send("You are banned from using the bot in this server.")
             ctx.command_failed = True
@@ -109,7 +110,7 @@ async def register_server(guild):
     """Register a server in the database."""
     try:
         # Check if server is already registered
-        settings = await supabase.get_server_settings(str(guild.id))
+        settings = supabase.get_server_settings(str(guild.id))
         if not settings:
             # Register new server
             await supabase.register_server(

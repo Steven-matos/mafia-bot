@@ -27,7 +27,7 @@ CREATE TABLE servers (
 CREATE TABLE users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL,
-    psn TEXT NOT NULL UNIQUE,
+    psn TEXT UNIQUE,
     family_id UUID,
     family_rank_id UUID,
     money INTEGER DEFAULT 0,

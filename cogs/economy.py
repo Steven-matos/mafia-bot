@@ -62,9 +62,9 @@ class Economy(commands.Cog):
         """Claim your daily reward."""
         try:
             # Get server settings
-            settings = await supabase.get_server_settings(str(ctx.guild.id))
+            settings = supabase.get_server_settings(str(ctx.guild.id))
             if not settings:
-                await ctx.send("Server settings not found!")
+                await ctx.send("Server settings not found! Please contact an administrator.")
                 return
 
             # Get user

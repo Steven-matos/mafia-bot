@@ -20,7 +20,7 @@ class Help(commands.Cog):
         """Show the bot's command prefix."""
         try:
             # Get server settings
-            settings = await supabase.get_server_settings(str(ctx.guild.id))
+            settings = supabase.get_server_settings(str(ctx.guild.id))
             prefix = settings.get("prefix", "!") if settings else "!"
 
             embed = discord.Embed(
@@ -42,7 +42,7 @@ class Help(commands.Cog):
         """Show help for commands."""
         try:
             # Get server settings for prefix
-            settings = await supabase.get_server_settings(str(ctx.guild.id))
+            settings = supabase.get_server_settings(str(ctx.guild.id))
             prefix = settings.get("prefix", "!") if settings else "!"
 
             if command is None:
@@ -55,21 +55,22 @@ class Help(commands.Cog):
 
                 # Add categories with more detailed descriptions
                 categories = {
-                    "Economy": "💰 Manage your money and bank account\n`balance`, `daily`, `transfer`, `rob`, `leaderboard`",
-                    "Family": "👨‍👩‍👧‍👦 Manage your crime family\n`family create`, `family join`, `family leave`, `family info`",
-                    "Turf": "🗺️ Control and manage territories\n`turf capture`, `turf defend`, `turf list`, `turf income`",
-                    "Roleplay": "🎮 Participate in roleplay events\n`rp start`, `rp join`, `rp leave`, `rp status`",
-                    "Hit System": "🎯 Manage hit contracts\n`hit request`, `hit list`, `hit complete`, `hit stats`",
-                    "Family Relationships": "🤝 Manage family alliances and KOS\n`relationship alliance`, `relationship kos`, `relationship list`",
-                    "Family Ranks": "👑 Manage family hierarchy\n`rank create`, `rank set`, `rank list`, `rank delete`",
-                    "Mentorship": "👨‍🏫 Manage mentor-mentee relationships\n`mentor assign`, `mentor list`, `mentor end`, `mentor my`",
-                    "Recruitment": "📝 Manage family recruitment process\n`recruitment addstep`, `recruitment remove`"
+                    "Economy": "💰 Manage your money and bank account\nMain command: `balance`\n`balance`, `daily`, `transfer`, `rob`, `leaderboard`",
+                    "Family": "👨‍👩‍👧‍👦 Manage your crime family\nMain command: `family`\n`family create`, `family join`, `family leave`, `family info`",
+                    "Turf": "🗺️ Control and manage territories\nMain command: `turf`\n`turf capture`, `turf defend`, `turf list`, `turf income`",
+                    "Hit System": "🎯 Manage hit contracts\nMain command: `hit`\n`hit request`, `hit list`, `hit complete`, `hit stats`",
+                    "Family Relationships": "🤝 Manage family alliances and KOS\nMain command: `relationship`\n`relationship alliance`, `relationship kos`, `relationship list`",
+                    "Family Ranks": "👑 Manage family hierarchy\nMain command: `rank`\n`rank create`, `rank set`, `rank list`, `rank delete`",
+                    "Mentorship": "👨‍🏫 Manage mentor-mentee relationships\nMain command: `mentor`\n`mentor assign`, `mentor list`, `mentor end`, `mentor my`",
+                    "Recruitment": "📝 Manage family recruitment process\nMain command: `recruitment`\n`recruitment addstep`, `recruitment remove`",
+                    "Regime": "👥 Manage family regimes\nMain command: `regime`\n`regime create`, `regime list`, `regime assign`, `regime distribution`",
+                    "Assignment": "📋 Manage regime assignments\nMain command: `assignment`\n`assignment create`, `assignment list`, `assignment complete`"
                 }
 
                 # Add moderator commands if user has permissions
                 if ctx.author.guild_permissions.manage_guild:
-                    categories["Moderator"] = "⚙️ Server management commands\n`mod settings`, `mod setprefix`, `mod setdaily`, `mod setcooldown`"
-                    categories["Bot Channels"] = "📢 Configure bot announcement channels\n`channel set`, `channel list`, `channel update`, `channel remove`"
+                    categories["Moderator"] = "⚙️ Server management commands\nMain command: `mod`\n`mod settings`, `mod setprefix`, `mod setdaily`, `mod setcooldown`, `mod ban`, `mod unban`, `mod banned`, `mod userinfo`, `mod serverstats`, `mod resetuser`, `mod resetfamily`, `mod cleanup`, `mod backup`, `mod audit`"
+                    categories["Bot Channels"] = "📢 Configure bot announcement channels\nMain command: `channel`\n`channel set`, `channel list`, `channel update`, `channel remove`, `channel types`"
 
                 for category, description in categories.items():
                     embed.add_field(
@@ -82,8 +83,47 @@ class Help(commands.Cog):
                 await ctx.send(embed=embed)
                 return
 
-            # Show help for specific command
-            cmd = self.bot.get_command(command.lower())
+            # Show help for specific command or category
+            command = command.lower()
+            
+            # Special handling for mod category
+            if command == "mod" and ctx.author.guild_permissions.manage_guild:
+                embed = discord.Embed(
+                    title="⚙️ Moderator Commands",
+                    description="Server management commands for moderators and administrators.",
+                    color=discord.Color.blue()
+                )
+                
+                mod_commands = {
+                    "settings": "View current server settings",
+                    "setprefix": "Set the server's command prefix",
+                    "setdaily": "Set the daily reward amount",
+                    "setcooldown": "Set cooldown for turf capture",
+                    "createturfs": "Create all GTA V turfs for the server",
+                    "ban": "Ban a user from using the bot in this server",
+                    "unban": "Unban a user from using the bot in this server",
+                    "banned": "List all banned users",
+                    "userinfo": "Get detailed information about a user",
+                    "serverstats": "View detailed server statistics",
+                    "resetuser": "Reset a user's data (removes from family, resets balance)",
+                    "resetfamily": "Reset a family's data (removes all members, resets balance)",
+                    "cleanup": "Clean up database entries for users who have left the server",
+                    "backup": "Create a backup of important server data",
+                    "audit": "View recent server activity audit log"
+                }
+                
+                for cmd, desc in mod_commands.items():
+                    embed.add_field(
+                        name=f"{prefix}mod {cmd}",
+                        value=desc,
+                        inline=False
+                    )
+                
+                await ctx.send(embed=embed)
+                return
+
+            # Handle other commands
+            cmd = self.bot.get_command(command)
             if cmd is None:
                 await ctx.send(f"Command '{command}' not found.")
                 return
@@ -131,34 +171,20 @@ class Help(commands.Cog):
                 if hasattr(cmd, "clean_params"):
                     param_descriptions = []
                     for param in cmd.clean_params.values():
-                        if hasattr(param, "description"):
-                            param_descriptions.append(f"`{param.name}`: {param.description}")
+                        desc = param.description if hasattr(param, "description") else "No description"
+                        param_descriptions.append(f"`{param.name}`: {desc}")
+                    
                     if param_descriptions:
-                        embed.add_field(name="Parameters", value="\n".join(param_descriptions), inline=False)
-
-            # Add permissions if any
-            if hasattr(cmd, "checks"):
-                for check in cmd.checks:
-                    if hasattr(check, "__qualname__"):
-                        if "is_family_leader" in check.__qualname__:
-                            embed.add_field(name="Required Role", value="Family Leader (Don)", inline=False)
-                        elif "is_server_moderator" in check.__qualname__:
-                            embed.add_field(name="Required Role", value="Server Moderator", inline=False)
-                        elif "is_eligible_for_hits" in check.__qualname__:
-                            embed.add_field(name="Required Role", value="Made Men or higher", inline=False)
-                        elif "is_eligible_mentor" in check.__qualname__:
-                            embed.add_field(name="Required Role", value="Made Men or Capo", inline=False)
-
-            # Add examples if available
-            if hasattr(cmd, "examples"):
-                examples = cmd.examples
-                if isinstance(examples, list):
-                    examples = "\n".join(f"`{prefix}{ex}`" for ex in examples)
-                embed.add_field(name="Examples", value=examples, inline=False)
+                        embed.add_field(
+                            name="Parameters",
+                            value="\n".join(param_descriptions),
+                            inline=False
+                        )
 
             await ctx.send(embed=embed)
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in help_command: {str(e)}")
+            await ctx.send("An error occurred while showing help.")
 
 async def setup(bot):
     await bot.add_cog(Help(bot)) 

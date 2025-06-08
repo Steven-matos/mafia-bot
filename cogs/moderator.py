@@ -18,7 +18,7 @@ MAX_COOLDOWN = 168  # Maximum cooldown in hours (1 week)
 MAX_AUDIT_DAYS = 30  # Maximum days for audit log
 MAX_BAN_REASON_LENGTH = 1000  # Maximum length for ban reason
 
-class Moderation(commands.Cog):
+class Moderator(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._last_command = {}  # For rate limiting
@@ -47,7 +47,7 @@ class Moderation(commands.Cog):
         return True
 
     async def log_mod_action(self, ctx, action: str, target: Union[discord.Member, str], reason: Optional[str] = None):
-        """Log moderation actions to database."""
+        """Log moderator actions to database."""
         try:
             await supabase.table('mod_logs').insert({
                 'server_id': str(ctx.guild.id),
@@ -58,24 +58,74 @@ class Moderation(commands.Cog):
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }).execute()
         except Exception as e:
-            logger.error(f"Failed to log moderation action: {str(e)}")
+            logger.error(f"Failed to log moderator action: {str(e)}")
 
     @commands.group(invoke_without_command=True)
     @is_mod()
     async def mod(self, ctx):
-        """Moderation commands for server management"""
-        await ctx.send_help(ctx.command)
+        """Moderator commands for server management"""
+        try:
+            if not ctx.author.guild_permissions.manage_guild:
+                await ctx.send("❌ You need the 'Manage Server' permission to use moderator commands.")
+                return
+            
+            # Create help embed
+            embed = discord.Embed(
+                title="Moderator Commands",
+                description="Available moderator commands:",
+                color=discord.Color.blue()
+            )
+            
+            # Add command fields
+            embed.add_field(
+                name="!mod settings",
+                value="View current server settings",
+                inline=False
+            )
+            embed.add_field(
+                name="!mod userinfo <user>",
+                value="Get detailed information about a user",
+                inline=False
+            )
+            embed.add_field(
+                name="!mod serverstats",
+                value="View server statistics",
+                inline=False
+            )
+            embed.add_field(
+                name="!mod ban <user> [reason]",
+                value="Ban a user from using the bot",
+                inline=False
+            )
+            embed.add_field(
+                name="!mod unban <user>",
+                value="Unban a user from using the bot",
+                inline=False
+            )
+            embed.add_field(
+                name="!mod banned",
+                value="List all banned users",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Error in mod command: {str(e)}")
+            await ctx.send(f"An error occurred while processing the command: {str(e)}")
 
     @mod.command(name="settings")
     @is_mod()
     async def view_settings(self, ctx):
         """View current server settings."""
+        if not ctx.author.guild_permissions.manage_guild:
+            await ctx.send("❌ You need the 'Manage Server' permission to view server settings.")
+            return
         try:
             if not self.rate_limit(ctx):
                 await ctx.send("Please wait a few seconds before using this command again.")
                 return
 
-            settings = await supabase.get_server_settings(str(ctx.guild.id))
+            settings = supabase.get_server_settings(str(ctx.guild.id))
             if not settings:
                 await ctx.send("Server settings not found! Please contact an administrator.")
                 return
@@ -93,7 +143,7 @@ class Moderation(commands.Cog):
             await ctx.send(embed=embed)
         except Exception as e:
             logger.error(f"Error in view_settings: {str(e)}")
-            await ctx.send("An error occurred while fetching server settings.")
+            await ctx.send(f"An error occurred while fetching server settings: {str(e)}")
 
     @mod.command(name="setprefix")
     @is_admin()  # Only admins can change prefix
@@ -645,7 +695,7 @@ class Moderation(commands.Cog):
                 return
 
             # Check if user is already banned
-            existing_ban = await supabase.get_banned_user(str(member.id), str(ctx.guild.id))
+            existing_ban = supabase.get_banned_user(str(member.id), str(ctx.guild.id))
             if existing_ban:
                 await ctx.send("This user is already banned!")
                 return
@@ -676,7 +726,7 @@ class Moderation(commands.Cog):
                 return
 
             # Check if user is banned
-            existing_ban = await supabase.get_banned_user(str(member.id), str(ctx.guild.id))
+            existing_ban = supabase.get_banned_user(str(member.id), str(ctx.guild.id))
             if not existing_ban:
                 await ctx.send("This user is not banned!")
                 return
@@ -698,7 +748,7 @@ class Moderation(commands.Cog):
     async def list_banned(self, ctx):
         """List all banned users in this server."""
         try:
-            banned_users = await supabase.get_banned_users(str(ctx.guild.id))
+            banned_users = supabase.get_banned_users(str(ctx.guild.id))
             if not banned_users:
                 await ctx.send("No banned users found in this server.")
                 return
@@ -916,5 +966,34 @@ class Moderation(commands.Cog):
         except Exception as e:
             await ctx.send(f"Error creating turfs: {str(e)}")
 
+    @mod.command(name="setpsn")
+    @is_mod()
+    async def set_psn(self, ctx, member: discord.Member, psn: str):
+        """Set a user's PlayStation Network ID."""
+        try:
+            # Check if PSN is already taken
+            existing_user = supabase.table('users').select('id').eq('psn', psn).execute()
+            if existing_user.data:
+                await ctx.send("❌ This PSN is already registered to another user!")
+                return
+
+            # Get or create user
+            user = await supabase.get_user(str(member.id))
+            if not user:
+                # Create new user
+                success = await supabase.create_user(str(member.id), member.name)
+                if not success:
+                    await ctx.send("❌ Failed to create user!")
+                    return
+
+            # Update PSN
+            result = supabase.table('users').update({'psn': psn}).eq('id', str(member.id)).execute()
+            if result.data:
+                await ctx.send(f"✅ Set {member.mention}'s PSN to: `{psn}`")
+            else:
+                await ctx.send("❌ Failed to update PSN. Please try again.")
+        except Exception as e:
+            await ctx.send(f"❌ An error occurred: {str(e)}")
+
 async def setup(bot):
-    await bot.add_cog(Moderation(bot)) 
+    await bot.add_cog(Moderator(bot)) 
