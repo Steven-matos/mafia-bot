@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from db.supabase_client import supabase
 from typing import Optional
 from datetime import datetime, timezone, timedelta
@@ -16,6 +16,60 @@ def is_admin_or_mod():
 class Meetings(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.check_upcoming_meetings.start()
+
+    def cog_unload(self):
+        self.check_upcoming_meetings.cancel()
+
+    @tasks.loop(minutes=5)
+    async def check_upcoming_meetings(self):
+        """Check for upcoming meetings and send reminders."""
+        try:
+            # Get meetings happening in the next hour
+            upcoming = await supabase.get_upcoming_meetings(timedelta(hours=1))
+            
+            for meeting in upcoming:
+                # Skip if already reminded
+                if meeting.get("reminder_sent"):
+                    continue
+
+                # Get the channel
+                channel = self.bot.get_channel(int(meeting["channel_id"]))
+                if not channel:
+                    continue
+
+                # Get RSVPs
+                rsvps = await supabase.get_meeting_rsvps(meeting["id"])
+                attending = sum(1 for r in rsvps if r["status"] == "attending")
+                
+                # Create reminder embed
+                embed = discord.Embed(
+                    title="⏰ Meeting Reminder",
+                    description=f"**{meeting['title']}** is starting soon!",
+                    color=discord.Color.blue()
+                )
+                
+                meeting_time = datetime.fromisoformat(meeting["meeting_time"])
+                embed.add_field(
+                    name="Time",
+                    value=f"<t:{int(meeting_time.timestamp())}:F> (<t:{int(meeting_time.timestamp())}:R>)",
+                    inline=False
+                )
+                
+                if meeting.get("duration_minutes"):
+                    embed.add_field(
+                        name="Duration",
+                        value=f"{meeting['duration_minutes']} minutes",
+                        inline=True
+                    )
+                
+                # Send reminder
+                await channel.send(embed=embed)
+                
+                # Mark reminder as sent
+                await supabase.update_meeting(meeting["id"], {"reminder_sent": True})
+        except Exception as e:
+            print(f"Error in check_upcoming_meetings: {str(e)}")
 
     @commands.group(invoke_without_command=True)
     async def meeting(self, ctx):
@@ -25,9 +79,16 @@ class Meetings(commands.Cog):
     @meeting.command(name="schedule")
     @is_admin_or_mod()
     async def schedule_meeting(self, ctx, channel: discord.TextChannel, time: str, *, title: str):
-        """Schedule a new meeting."""
+        """Schedule a new meeting.
+        
+        Parameters:
+        -----------
+        channel: The channel to post the meeting in
+        time: Meeting time (YYYY-MM-DD HH:MM)
+        title: Meeting title
+        """
         try:
-            # Parse the time string (format: YYYY-MM-DD HH:MM)
+            # Parse the time string
             try:
                 meeting_time = datetime.strptime(time, "%Y-%m-%d %H:%M")
                 meeting_time = meeting_time.replace(tzinfo=timezone.utc)
@@ -48,8 +109,8 @@ class Meetings(commands.Cog):
             if meeting:
                 # Create the RSVP message
                 embed = discord.Embed(
-                    title="📅 Meeting Scheduled",
-                    description=title,
+                    title=f"📅 Meeting: {title}",
+                    description=f"Scheduled by {ctx.author.mention}",
                     color=discord.Color.blue()
                 )
                 embed.add_field(
@@ -77,6 +138,65 @@ class Meetings(commands.Cog):
         except Exception as e:
             await ctx.send(f"An error occurred: {str(e)}")
 
+    @meeting.command(name="reschedule")
+    @is_admin_or_mod()
+    async def reschedule_meeting(self, ctx, meeting_id: str, new_time: str):
+        """Reschedule a meeting to a new time.
+        
+        Parameters:
+        -----------
+        meeting_id: The ID of the meeting to reschedule
+        new_time: New meeting time (YYYY-MM-DD HH:MM)
+        """
+        try:
+            meeting = await supabase.get_meeting(meeting_id)
+            if not meeting:
+                await ctx.send("Meeting not found.")
+                return
+
+            if meeting["status"] != "scheduled":
+                await ctx.send("Can only reschedule scheduled meetings.")
+                return
+
+            # Parse the new time
+            try:
+                new_meeting_time = datetime.strptime(new_time, "%Y-%m-%d %H:%M")
+                new_meeting_time = new_meeting_time.replace(tzinfo=timezone.utc)
+            except ValueError:
+                await ctx.send("Invalid time format. Please use YYYY-MM-DD HH:MM")
+                return
+
+            # Update meeting time
+            success = await supabase.update_meeting(meeting_id, {
+                "meeting_time": new_meeting_time.isoformat(),
+                "reminder_sent": False  # Reset reminder flag
+            })
+
+            if success:
+                # Update the message if it exists
+                if meeting["channel_id"] and meeting["message_id"]:
+                    try:
+                        channel = ctx.guild.get_channel(int(meeting["channel_id"]))
+                        if channel:
+                            message = await channel.fetch_message(int(meeting["message_id"]))
+                            if message:
+                                embed = message.embeds[0]
+                                embed.set_field_at(
+                                    0,
+                                    name="Time",
+                                    value=f"<t:{int(new_meeting_time.timestamp())}:F> (<t:{int(new_meeting_time.timestamp())}:R>)",
+                                    inline=False
+                                )
+                                await message.edit(embed=embed)
+                    except:
+                        pass
+
+                await ctx.send("Meeting rescheduled successfully.")
+            else:
+                await ctx.send("Failed to reschedule meeting. Please try again.")
+        except Exception as e:
+            await ctx.send(f"An error occurred: {str(e)}")
+
     @meeting.command(name="list")
     async def list_meetings(self, ctx):
         """List all scheduled meetings."""
@@ -99,10 +219,15 @@ class Meetings(commands.Cog):
                 not_attending = sum(1 for r in rsvps if r["status"] == "not_attending")
                 pending = sum(1 for r in rsvps if r["status"] == "pending")
 
+                value = f"**Time:** <t:{int(meeting_time.timestamp())}:F>\n"
+                value += f"**RSVPs:** ✅ {attending} | ❌ {not_attending} | ⏳ {pending}"
+                
+                if meeting.get("duration_minutes"):
+                    value += f"\n**Duration:** {meeting['duration_minutes']} minutes"
+
                 embed.add_field(
                     name=meeting["title"],
-                    value=f"**Time:** <t:{int(meeting_time.timestamp())}:F>\n"
-                          f"**RSVPs:** ✅ {attending} | ❌ {not_attending} | ⏳ {pending}",
+                    value=value,
                     inline=False
                 )
 
@@ -227,6 +352,17 @@ class RSVPView(discord.ui.View):
 
     async def handle_rsvp(self, interaction: discord.Interaction, status: str):
         try:
+            # Get meeting details
+            meeting = await supabase.get_meeting(self.meeting_id)
+            if not meeting:
+                await interaction.response.send_message("Meeting not found.", ephemeral=True)
+                return
+
+            # Check if meeting is still scheduled
+            if meeting["status"] != "scheduled":
+                await interaction.response.send_message("This meeting is no longer scheduled.", ephemeral=True)
+                return
+
             # Create/update RSVP
             rsvp = await supabase.create_rsvp(
                 self.meeting_id,
@@ -236,21 +372,19 @@ class RSVPView(discord.ui.View):
 
             if rsvp:
                 # Update the message
-                meeting = await supabase.get_meeting(self.meeting_id)
-                if meeting:
-                    rsvps = await supabase.get_meeting_rsvps(self.meeting_id)
-                    attending = sum(1 for r in rsvps if r["status"] == "attending")
-                    not_attending = sum(1 for r in rsvps if r["status"] == "not_attending")
-                    pending = sum(1 for r in rsvps if r["status"] == "pending")
+                rsvps = await supabase.get_meeting_rsvps(self.meeting_id)
+                attending = sum(1 for r in rsvps if r["status"] == "attending")
+                not_attending = sum(1 for r in rsvps if r["status"] == "not_attending")
+                pending = sum(1 for r in rsvps if r["status"] == "pending")
 
-                    embed = interaction.message.embeds[0]
-                    embed.set_field_at(
-                        1,
-                        name="RSVP Status",
-                        value=f"✅ Attending: {attending}\n❌ Not Attending: {not_attending}\n⏳ Pending: {pending}",
-                        inline=False
-                    )
-                    await interaction.message.edit(embed=embed)
+                embed = interaction.message.embeds[0]
+                embed.set_field_at(
+                    1,
+                    name="RSVP Status",
+                    value=f"✅ Attending: {attending}\n❌ Not Attending: {not_attending}\n⏳ Pending: {pending}",
+                    inline=False
+                )
+                await interaction.message.edit(embed=embed)
 
                 await interaction.response.send_message(
                     f"You have marked yourself as {'attending' if status == 'attending' else 'not attending'}.",

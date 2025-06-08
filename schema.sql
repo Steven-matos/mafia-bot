@@ -69,6 +69,7 @@ CREATE TABLE user_servers (
     user_id TEXT REFERENCES users(id),
     server_id TEXT REFERENCES servers(id),
     joined_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    is_moderator BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (user_id, server_id)
 );
 
@@ -85,6 +86,17 @@ CREATE TABLE families (
     main_server_id TEXT REFERENCES servers(id)
 );
 
+-- Family members table
+CREATE TABLE family_members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    family_id UUID REFERENCES families(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    rank_id UUID REFERENCES family_ranks(id),
+    regime_id UUID REFERENCES regimes(id) ON DELETE SET NULL,
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(family_id, user_id)
+);
+
 -- Turfs table
 CREATE TABLE turfs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -98,16 +110,6 @@ CREATE TABLE turfs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
--- Shop items table
-CREATE TABLE shop_items (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    price INTEGER NOT NULL,
-    item_type TEXT NOT NULL,
-    is_consumable BOOLEAN DEFAULT FALSE
-);
-
 -- Transactions table
 CREATE TABLE transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -115,7 +117,6 @@ CREATE TABLE transactions (
     type TEXT NOT NULL,
     amount INTEGER NOT NULL,
     target_user_id TEXT REFERENCES users(id),
-    item_id TEXT REFERENCES shop_items(id),
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT now(),
     notes TEXT,
     server_id TEXT REFERENCES servers(id)
@@ -203,42 +204,33 @@ CREATE TABLE recruitment_image_submissions (
     reviewed_at TIMESTAMP WITH TIME ZONE
 );
 
--- Insert some default shop items
-INSERT INTO shop_items (id, name, description, price, item_type, is_consumable) VALUES
-    ('lockpick', 'Lockpick', 'Used to break into vehicles and buildings', 500, 'tool', TRUE),
-    ('fake_id', 'Fake ID', 'Helps avoid identification', 1000, 'tool', FALSE),
-    ('pistol', 'Pistol', 'Basic firearm for protection', 2000, 'weapon', FALSE),
-    ('shotgun', 'Shotgun', 'Powerful close-range weapon', 5000, 'weapon', FALSE),
-    ('armor', 'Body Armor', 'Provides protection from damage', 3000, 'equipment', FALSE),
-    ('phone', 'Burner Phone', 'Untraceable communication device', 800, 'tool', FALSE),
-    ('c4', 'C4 Explosive', 'Used for heists and sabotage', 10000, 'tool', TRUE),
-    ('medkit', 'Medkit', 'Restores health after injuries', 1500, 'consumable', TRUE);
-
--- Create meetings table
-CREATE TABLE meetings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Meetings table
+CREATE TABLE IF NOT EXISTS meetings (
+    id TEXT PRIMARY KEY,
     server_id TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
-    scheduled_by TEXT NOT NULL,
-    scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by TEXT NOT NULL,
     meeting_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    channel_id TEXT,
+    channel_id TEXT NOT NULL,
     message_id TEXT,
     status TEXT NOT NULL DEFAULT 'scheduled',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    duration_minutes INTEGER,
+    reminder_sent BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Create meeting_rsvps table
-CREATE TABLE meeting_rsvps (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    meeting_id UUID REFERENCES meetings(id) ON DELETE CASCADE,
+-- Meeting RSVPs table
+CREATE TABLE IF NOT EXISTS meeting_rsvps (
+    id TEXT PRIMARY KEY,
+    meeting_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    notes TEXT,
-    responded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(meeting_id, user_id)
+    status TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- Hit contracts table
@@ -305,7 +297,7 @@ CREATE TABLE IF NOT EXISTS hit_stats (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id TEXT NOT NULL,
     server_id TEXT NOT NULL,
-    family_id TEXT NOT NULL,
+    family_id UUID NOT NULL,
     successful_hits INTEGER DEFAULT 0,
     failed_hits INTEGER DEFAULT 0,
     total_hits INTEGER DEFAULT 0,
@@ -316,12 +308,6 @@ CREATE TABLE IF NOT EXISTS hit_stats (
     FOREIGN KEY (user_id, server_id) REFERENCES user_servers(user_id, server_id) ON DELETE CASCADE,
     FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
-
--- Add trigger to update updated_at
-CREATE TRIGGER update_hit_stats_updated_at
-    BEFORE UPDATE ON hit_stats
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
 
 -- Create hit verifications table
 CREATE TABLE IF NOT EXISTS hit_verifications (
@@ -336,13 +322,62 @@ CREATE TABLE IF NOT EXISTS hit_verifications (
     FOREIGN KEY (verifier_id, server_id) REFERENCES user_servers(user_id, server_id) ON DELETE CASCADE
 );
 
--- Add trigger to update updated_at
-CREATE TRIGGER update_hit_verifications_updated_at
-    BEFORE UPDATE ON hit_verifications
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+-- Regimes table
+CREATE TABLE IF NOT EXISTS regimes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    family_id UUID REFERENCES families(id) ON DELETE CASCADE,
+    name VARCHAR(50) NOT NULL,
+    description TEXT,
+    leader_id TEXT REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(family_id, name)
+);
 
--- Create indexes for better performance
+-- Assignments table
+CREATE TABLE IF NOT EXISTS assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    family_id UUID REFERENCES families(id) ON DELETE CASCADE,
+    regime_id UUID REFERENCES regimes(id) ON DELETE CASCADE,
+    title VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    reward_amount INTEGER NOT NULL,
+    deadline TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by TEXT REFERENCES users(id),
+    assigned_to TEXT REFERENCES users(id),
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'expired'))
+);
+
+-- Regime distribution settings table
+CREATE TABLE IF NOT EXISTS regime_distribution (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    family_id UUID REFERENCES families(id) ON DELETE CASCADE,
+    regime_id UUID REFERENCES regimes(id) ON DELETE CASCADE,
+    is_active BOOLEAN DEFAULT true,
+    target_member_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(family_id, regime_id)
+);
+
+-- Add security constraints
+ALTER TABLE users
+ADD CONSTRAINT positive_money CHECK (money >= 0),
+ADD CONSTRAINT positive_bank CHECK (bank >= 0);
+
+ALTER TABLE families
+ADD CONSTRAINT positive_family_money CHECK (family_money >= 0),
+ADD CONSTRAINT positive_reputation CHECK (reputation >= 0);
+
+ALTER TABLE transactions
+ADD CONSTRAINT positive_amount CHECK (amount > 0);
+
+ALTER TABLE hit_contracts
+ADD CONSTRAINT positive_reward CHECK (reward > 0);
+
+-- Add indexes for better performance
 CREATE INDEX idx_users_family_id ON users(family_id);
 CREATE INDEX idx_users_family_rank_id ON users(family_rank_id);
 CREATE INDEX idx_turfs_family_id ON turfs(family_id);
@@ -361,8 +396,10 @@ CREATE INDEX idx_recruitment_verifications_step ON recruitment_verifications(ste
 CREATE INDEX idx_recruitment_image_submissions_progress ON recruitment_image_submissions(progress_id);
 CREATE INDEX idx_recruitment_image_submissions_step ON recruitment_image_submissions(step_id);
 CREATE INDEX idx_meetings_server ON meetings(server_id);
-CREATE INDEX idx_meetings_scheduled_by ON meetings(scheduled_by);
+CREATE INDEX idx_meetings_scheduled_by ON meetings(created_by);
 CREATE INDEX idx_meetings_meeting_time ON meetings(meeting_time);
+CREATE INDEX idx_meetings_status ON meetings(status);
+CREATE INDEX idx_meetings_reminder_sent ON meetings(reminder_sent);
 CREATE INDEX idx_meeting_rsvps_meeting ON meeting_rsvps(meeting_id);
 CREATE INDEX idx_meeting_rsvps_user ON meeting_rsvps(user_id);
 CREATE INDEX idx_meeting_rsvps_status ON meeting_rsvps(status);
@@ -383,465 +420,23 @@ CREATE INDEX idx_mentorships_mentor_id ON mentorships(mentor_id);
 CREATE INDEX idx_mentorships_mentee_id ON mentorships(mentee_id);
 CREATE INDEX idx_mentorships_family_id ON mentorships(family_id);
 CREATE INDEX idx_mentorships_status ON mentorships(status);
-
--- Row Level Security (RLS) Policies
-
--- Servers table policies
-ALTER TABLE servers ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Servers are viewable by everyone"
-    ON servers FOR SELECT
-    USING (true);
-
--- Users table policies
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users are viewable by everyone"
-    ON users FOR SELECT
-    USING (true);
-
-CREATE POLICY "Users can update their own data"
-    ON users FOR UPDATE
-    USING (auth.uid() = id);
-
--- User servers table policies
-ALTER TABLE user_servers ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their server memberships"
-    ON user_servers FOR SELECT
-    USING (user_id = current_user);
-
--- Families table policies
-ALTER TABLE families ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Families are viewable by everyone"
-    ON families FOR SELECT
-    USING (true);
-
-CREATE POLICY "Family leaders can update their family"
-    ON families FOR UPDATE
-    USING (auth.uid() = leader_id);
-
--- Turfs table policies
-ALTER TABLE turfs ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Turfs are viewable by everyone"
-    ON turfs FOR SELECT
-    USING (true);
-
-CREATE POLICY "Family leaders can update their turfs"
-    ON turfs FOR UPDATE
-    USING (EXISTS (
-        SELECT 1 FROM families
-        WHERE families.id = turfs.family_id
-        AND families.leader_id = auth.uid()
-    ));
-
--- Shop items table policies
-ALTER TABLE shop_items ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Anyone can view shop items"
-    ON shop_items FOR SELECT
-    USING (true);
-
--- Transactions table policies
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own transactions"
-    ON transactions FOR SELECT
-    USING (user_id = current_user OR target_user_id = current_user);
-
--- Family invites table policies
-ALTER TABLE family_invites ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own invites"
-    ON family_invites FOR SELECT
-    USING (user_id = current_user);
-
-CREATE POLICY "Family leaders can create invites"
-    ON family_invites FOR INSERT
-    WITH CHECK (
-        invited_by IN (
-            SELECT leader_id FROM families WHERE id = family_id
-        )
-    );
-
-CREATE POLICY "Users can delete their own invites"
-    ON family_invites FOR DELETE
-    USING (user_id = current_user);
-
--- Server settings table policies
-ALTER TABLE server_settings ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Anyone can view server settings"
-    ON server_settings FOR SELECT
-    USING (true);
-
--- Banned_users table policies
-ALTER TABLE banned_users ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own bans"
-    ON banned_users FOR SELECT
-    USING (auth.uid()::text = user_id);
-
-CREATE POLICY "Server admins can view their server's bans"
-    ON banned_users FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM servers
-            WHERE servers.id = banned_users.server_id
-            AND servers.admin_id = auth.uid()::text
-        )
-    );
-
-CREATE POLICY "Server admins can manage their server's bans"
-    ON banned_users FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM servers
-            WHERE servers.id = banned_users.server_id
-            AND servers.admin_id = auth.uid()::text
-        )
-    );
-
--- Recruitment steps policies
-ALTER TABLE recruitment_steps ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their family's recruitment steps"
-    ON recruitment_steps FOR SELECT
-    USING (
-        family_id IN (
-            SELECT family_id FROM user_servers
-            WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Family leaders can manage their family's recruitment steps"
-    ON recruitment_steps FOR ALL
-    USING (
-        family_id IN (
-            SELECT f.id FROM families f
-            WHERE f.leader_id = auth.uid()
-        )
-    );
-
--- Recruitment progress policies
-ALTER TABLE recruitment_progress ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own recruitment progress"
-    ON recruitment_progress FOR SELECT
-    USING (user_id = auth.uid());
-
-CREATE POLICY "Family leaders can view their family's recruitment progress"
-    ON recruitment_progress FOR SELECT
-    USING (
-        family_id IN (
-            SELECT f.id FROM families f
-            WHERE f.leader_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can create their own recruitment progress"
-    ON recruitment_progress FOR INSERT
-    WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY "Family leaders can update recruitment progress"
-    ON recruitment_progress FOR UPDATE
-    USING (
-        family_id IN (
-            SELECT f.id FROM families f
-            WHERE f.leader_id = auth.uid()
-        )
-    );
-
--- Recruitment verifications policies
-ALTER TABLE recruitment_verifications ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own verifications"
-    ON recruitment_verifications FOR SELECT
-    USING (
-        progress_id IN (
-            SELECT id FROM recruitment_progress
-            WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Family leaders can manage verifications"
-    ON recruitment_verifications FOR ALL
-    USING (
-        step_id IN (
-            SELECT rs.id FROM recruitment_steps rs
-            JOIN families f ON f.id = rs.family_id
-            WHERE f.leader_id = auth.uid()
-        )
-    );
-
--- Recruitment image submissions policies
-ALTER TABLE recruitment_image_submissions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own image submissions"
-    ON recruitment_image_submissions FOR SELECT
-    USING (
-        progress_id IN (
-            SELECT id FROM recruitment_progress
-            WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Users can submit images for their recruitment"
-    ON recruitment_image_submissions FOR INSERT
-    WITH CHECK (
-        progress_id IN (
-            SELECT id FROM recruitment_progress
-            WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Family leaders can review image submissions"
-    ON recruitment_image_submissions FOR UPDATE
-    USING (
-        step_id IN (
-            SELECT rs.id FROM recruitment_steps rs
-            JOIN families f ON f.id = rs.family_id
-            WHERE f.leader_id = auth.uid()
-        )
-    );
-
--- Meetings table policies
-ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view meetings in their servers"
-    ON meetings FOR SELECT
-    USING (
-        server_id IN (
-            SELECT server_id FROM user_servers
-            WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Admins can manage meetings"
-    ON meetings FOR ALL
-    USING (
-        scheduled_by = auth.uid() OR
-        EXISTS (
-            SELECT 1 FROM user_servers
-            WHERE user_id = auth.uid()
-            AND server_id = meetings.server_id
-            AND role IN ('admin', 'moderator')
-        )
-    );
-
--- Meeting_rsvps table policies
-ALTER TABLE meeting_rsvps ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view their own RSVPs"
-    ON meeting_rsvps FOR SELECT
-    USING (user_id = auth.uid());
-
-CREATE POLICY "Users can manage their own RSVPs"
-    ON meeting_rsvps FOR INSERT
-    WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY "Users can update their own RSVPs"
-    ON meeting_rsvps FOR UPDATE
-    USING (user_id = auth.uid());
-
-CREATE POLICY "Admins can view all RSVPs"
-    ON meeting_rsvps FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM meetings m
-            JOIN user_servers us ON us.server_id = m.server_id
-            WHERE m.id = meeting_rsvps.meeting_id
-            AND us.user_id = auth.uid()
-            AND us.role IN ('admin', 'moderator')
-        )
-    );
-
--- Family relationships policies
-ALTER TABLE family_relationships ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Family relationships are viewable by everyone"
-    ON family_relationships FOR SELECT
-    USING (true);
-
-CREATE POLICY "Family leaders can manage relationships"
-    ON family_relationships FOR ALL
-    USING (EXISTS (
-        SELECT 1 FROM families
-        WHERE families.id = family_relationships.family_id
-        AND families.leader_id = auth.uid()
-    ));
-
-CREATE POLICY "Users can create their own family relationships"
-    ON family_relationships FOR INSERT
-    WITH CHECK (
-        family_id IN (
-            SELECT family_id FROM user_servers
-            WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY "Family leaders can delete their family relationships"
-    ON family_relationships FOR DELETE
-    USING (
-        family_id IN (
-            SELECT f.id FROM families f
-            WHERE f.leader_id = auth.uid()
-        )
-    );
-
--- Family ranks policies
-ALTER TABLE family_ranks ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Family ranks are viewable by everyone"
-    ON family_ranks FOR SELECT
-    USING (true);
-
-CREATE POLICY "Family leaders can manage ranks"
-    ON family_ranks FOR ALL
-    USING (EXISTS (
-        SELECT 1 FROM families
-        WHERE families.id = family_ranks.family_id
-        AND families.leader_id = auth.uid()
-    ));
-
--- Bot channels policies
-ALTER TABLE bot_channels ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Bot channels are viewable by everyone"
-    ON bot_channels FOR SELECT
-    USING (true);
-
-CREATE POLICY "Server moderators can manage bot channels"
-    ON bot_channels FOR ALL
-    USING (EXISTS (
-        SELECT 1 FROM user_servers
-        WHERE user_servers.server_id = bot_channels.server_id
-        AND user_servers.user_id = auth.uid()
-        AND user_servers.is_moderator = true
-    ));
-
--- Mentorship policies
-ALTER TABLE mentorships ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Mentorships are viewable by family members"
-    ON mentorships FOR SELECT
-    USING (EXISTS (
-        SELECT 1 FROM users
-        WHERE users.id = auth.uid()
-        AND users.family_id = mentorships.family_id
-    ));
-
-CREATE POLICY "Family leaders can manage mentorships"
-    ON mentorships FOR ALL
-    USING (EXISTS (
-        SELECT 1 FROM families
-        WHERE families.id = mentorships.family_id
-        AND families.leader_id = auth.uid()
-    ));
-
-CREATE POLICY "Mentors can update their own mentorships"
-    ON mentorships FOR UPDATE
-    USING (mentor_id = auth.uid());
-
--- Update users table
-ALTER TABLE users 
-DROP COLUMN IF EXISTS last_heist;
-
--- Update server_settings table
-ALTER TABLE server_settings 
-DROP COLUMN IF EXISTS heist_cooldown;
-
--- Update items table to remove heist-specific items
-DELETE FROM items WHERE name = 'c4';
-
--- Add GTA V roleplay specific items
-INSERT INTO items (name, description, price, type, is_tradeable) VALUES
-('pistol', 'Standard issue pistol', 5000, 'weapon', TRUE),
-('smg', 'Submachine gun', 10000, 'weapon', TRUE),
-('shotgun', 'Pump-action shotgun', 15000, 'weapon', TRUE),
-('rifle', 'Assault rifle', 20000, 'weapon', TRUE),
-('armor', 'Basic body armor', 5000, 'armor', TRUE),
-('heavy_armor', 'Heavy body armor', 10000, 'armor', TRUE),
-('phone', 'Mobile phone for communications', 1000, 'tool', TRUE),
-('lockpick', 'Tool for breaking into vehicles', 2000, 'tool', TRUE),
-('first_aid', 'Basic medical supplies', 1000, 'medical', TRUE),
-('bandage', 'For treating wounds', 500, 'medical', TRUE);
-
--- Regimes table
-CREATE TABLE IF NOT EXISTS regimes (
-    id SERIAL PRIMARY KEY,
-    family_id INTEGER REFERENCES families(id) ON DELETE CASCADE,
-    name VARCHAR(50) NOT NULL,
-    description TEXT,
-    leader_id BIGINT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(family_id, name)
-);
-
--- Assignments table
-CREATE TABLE IF NOT EXISTS assignments (
-    id SERIAL PRIMARY KEY,
-    family_id INTEGER REFERENCES families(id) ON DELETE CASCADE,
-    regime_id INTEGER REFERENCES regimes(id) ON DELETE CASCADE,
-    title VARCHAR(100) NOT NULL,
-    description TEXT NOT NULL,
-    reward_amount INTEGER NOT NULL,
-    deadline TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_by BIGINT NOT NULL,
-    assigned_to BIGINT,
-    status VARCHAR(20) DEFAULT 'pending',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'expired'))
-);
-
--- Add regime_id to family_members table
-ALTER TABLE family_members ADD COLUMN IF NOT EXISTS regime_id INTEGER REFERENCES regimes(id) ON DELETE SET NULL;
-
--- Remove RP-specific tables if they exist
-DROP TABLE IF EXISTS rp_events;
-DROP TABLE IF EXISTS rp_contracts;
-DROP TABLE IF EXISTS rp_proof;
-
--- Remove RP-specific columns if they exist
-ALTER TABLE users DROP COLUMN IF EXISTS rp_level;
-ALTER TABLE users DROP COLUMN IF EXISTS rp_xp;
-ALTER TABLE users DROP COLUMN IF EXISTS last_rp_action;
-
--- Regime distribution settings table
-CREATE TABLE IF NOT EXISTS regime_distribution (
-    id SERIAL PRIMARY KEY,
-    family_id INTEGER REFERENCES families(id) ON DELETE CASCADE,
-    regime_id INTEGER REFERENCES regimes(id) ON DELETE CASCADE,
-    is_active BOOLEAN DEFAULT true,
-    target_member_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(family_id, regime_id)
-);
-
--- Add security constraints to existing tables
-ALTER TABLE users
-ADD CONSTRAINT positive_money CHECK (money >= 0),
-ADD CONSTRAINT positive_bank CHECK (bank >= 0);
-
-ALTER TABLE families
-ADD CONSTRAINT positive_family_money CHECK (family_money >= 0),
-ADD CONSTRAINT positive_reputation CHECK (reputation >= 0);
-
-ALTER TABLE transactions
-ADD CONSTRAINT positive_amount CHECK (amount > 0);
-
-ALTER TABLE hit_contracts
-ADD CONSTRAINT positive_reward CHECK (reward > 0);
-
--- Add indexes for security-related queries
 CREATE INDEX idx_mod_logs_server ON mod_logs(server_id);
 CREATE INDEX idx_mod_logs_moderator ON mod_logs(moderator_id);
 CREATE INDEX idx_mod_logs_timestamp ON mod_logs(timestamp);
 CREATE INDEX idx_security_settings_server ON security_settings(server_id);
+CREATE INDEX idx_family_members_family ON family_members(family_id);
+CREATE INDEX idx_family_members_user ON family_members(user_id);
+CREATE INDEX idx_family_members_rank ON family_members(rank_id);
+CREATE INDEX idx_family_members_regime ON family_members(regime_id);
+CREATE INDEX idx_regimes_family ON regimes(family_id);
+CREATE INDEX idx_regimes_leader ON regimes(leader_id);
+CREATE INDEX idx_assignments_family ON assignments(family_id);
+CREATE INDEX idx_assignments_regime ON assignments(regime_id);
+CREATE INDEX idx_assignments_created_by ON assignments(created_by);
+CREATE INDEX idx_assignments_assigned_to ON assignments(assigned_to);
+CREATE INDEX idx_assignments_status ON assignments(status);
+CREATE INDEX idx_regime_distribution_family ON regime_distribution(family_id);
+CREATE INDEX idx_regime_distribution_regime ON regime_distribution(regime_id);
 
 -- Add trigger for updating timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -860,5 +455,35 @@ CREATE TRIGGER update_servers_updated_at
 
 CREATE TRIGGER update_security_settings_updated_at
     BEFORE UPDATE ON security_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_families_updated_at
+    BEFORE UPDATE ON families
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_family_ranks_updated_at
+    BEFORE UPDATE ON family_ranks
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_mentorships_updated_at
+    BEFORE UPDATE ON mentorships
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_hit_stats_updated_at
+    BEFORE UPDATE ON hit_stats
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_hit_verifications_updated_at
+    BEFORE UPDATE ON hit_verifications
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_regime_distribution_updated_at
+    BEFORE UPDATE ON regime_distribution
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column(); 
