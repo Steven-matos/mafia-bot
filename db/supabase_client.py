@@ -7,6 +7,9 @@ import asyncio
 import logging
 from collections import defaultdict
 
+# Load environment variables
+load_dotenv()
+
 logger = logging.getLogger('mafia-bot')
 
 class RateLimiter:
@@ -115,8 +118,7 @@ class SupabaseClient:
                     "server_id": server_id,
                     "prefix": "!",
                     "daily_amount": 1000,
-                    "turf_capture_cooldown": 24,
-                    "heist_cooldown": 12
+                    "turf_capture_cooldown": 24
                 }
                 self.client.table("server_settings").insert(settings_data).execute()
                 return True

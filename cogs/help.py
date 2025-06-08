@@ -53,23 +53,23 @@ class Help(commands.Cog):
                     color=discord.Color.blue()
                 )
 
-                # Add categories
+                # Add categories with more detailed descriptions
                 categories = {
-                    "Economy": "💰 Manage your money and bank account",
-                    "Family": "👨‍👩‍👧‍👦 Manage your crime family",
-                    "Turf": "🗺️ Control and manage territories",
-                    "Roleplay": "🎮 Participate in roleplay events",
-                    "Hit System": "🎯 Manage hit contracts",
-                    "Family Relationships": "🤝 Manage family alliances and KOS",
-                    "Family Ranks": "👑 Manage family hierarchy",
-                    "Mentorship": "👨‍🏫 Manage mentor-mentee relationships",
-                    "Recruitment": "📝 Manage family recruitment process"
+                    "Economy": "💰 Manage your money and bank account\n`balance`, `daily`, `transfer`, `rob`, `leaderboard`",
+                    "Family": "👨‍👩‍👧‍👦 Manage your crime family\n`family create`, `family join`, `family leave`, `family info`",
+                    "Turf": "🗺️ Control and manage territories\n`turf capture`, `turf defend`, `turf list`, `turf income`",
+                    "Roleplay": "🎮 Participate in roleplay events\n`rp start`, `rp join`, `rp leave`, `rp status`",
+                    "Hit System": "🎯 Manage hit contracts\n`hit request`, `hit list`, `hit complete`, `hit stats`",
+                    "Family Relationships": "🤝 Manage family alliances and KOS\n`relationship alliance`, `relationship kos`, `relationship list`",
+                    "Family Ranks": "👑 Manage family hierarchy\n`rank create`, `rank set`, `rank list`, `rank delete`",
+                    "Mentorship": "👨‍🏫 Manage mentor-mentee relationships\n`mentor assign`, `mentor list`, `mentor end`, `mentor my`",
+                    "Recruitment": "📝 Manage family recruitment process\n`recruitment addstep`, `recruitment remove`"
                 }
 
                 # Add moderator commands if user has permissions
                 if ctx.author.guild_permissions.manage_guild:
-                    categories["Moderator"] = "⚙️ Server management commands"
-                    categories["Bot Channels"] = "📢 Configure bot announcement channels"
+                    categories["Moderator"] = "⚙️ Server management commands\n`mod settings`, `mod setprefix`, `mod setdaily`, `mod setcooldown`"
+                    categories["Bot Channels"] = "📢 Configure bot announcement channels\n`channel set`, `channel list`, `channel update`, `channel remove`"
 
                 for category, description in categories.items():
                     embed.add_field(
@@ -96,12 +96,23 @@ class Help(commands.Cog):
 
             # Add usage information
             if isinstance(cmd, commands.Group):
-                subcommands = [f"`{prefix}{cmd.name} {sub.name}` - {sub.help or 'No description'}" 
-                             for sub in cmd.commands]
+                subcommands = []
+                for sub in cmd.commands:
+                    # Get subcommand signature
+                    params = []
+                    for param in sub.clean_params.values():
+                        if param.required:
+                            params.append(f"<{param.name}>")
+                        else:
+                            params.append(f"[{param.name}]")
+                    
+                    usage = f"`{prefix}{cmd.name} {sub.name} {' '.join(params)}`"
+                    subcommands.append(f"{usage}\n{sub.help or 'No description'}")
+                
                 if subcommands:
                     embed.add_field(
                         name="Subcommands",
-                        value="\n".join(subcommands),
+                        value="\n\n".join(subcommands),
                         inline=False
                     )
             else:
@@ -116,6 +127,15 @@ class Help(commands.Cog):
                 usage = f"`{prefix}{cmd.name} {' '.join(params)}`"
                 embed.add_field(name="Usage", value=usage, inline=False)
 
+                # Add parameter descriptions if available
+                if hasattr(cmd, "clean_params"):
+                    param_descriptions = []
+                    for param in cmd.clean_params.values():
+                        if hasattr(param, "description"):
+                            param_descriptions.append(f"`{param.name}`: {param.description}")
+                    if param_descriptions:
+                        embed.add_field(name="Parameters", value="\n".join(param_descriptions), inline=False)
+
             # Add permissions if any
             if hasattr(cmd, "checks"):
                 for check in cmd.checks:
@@ -124,6 +144,17 @@ class Help(commands.Cog):
                             embed.add_field(name="Required Role", value="Family Leader (Don)", inline=False)
                         elif "is_server_moderator" in check.__qualname__:
                             embed.add_field(name="Required Role", value="Server Moderator", inline=False)
+                        elif "is_eligible_for_hits" in check.__qualname__:
+                            embed.add_field(name="Required Role", value="Made Men or higher", inline=False)
+                        elif "is_eligible_mentor" in check.__qualname__:
+                            embed.add_field(name="Required Role", value="Made Men or Capo", inline=False)
+
+            # Add examples if available
+            if hasattr(cmd, "examples"):
+                examples = cmd.examples
+                if isinstance(examples, list):
+                    examples = "\n".join(f"`{prefix}{ex}`" for ex in examples)
+                embed.add_field(name="Examples", value=examples, inline=False)
 
             await ctx.send(embed=embed)
         except Exception as e:

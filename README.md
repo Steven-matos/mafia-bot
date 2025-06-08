@@ -6,11 +6,13 @@ A Discord bot for GTA V crime family roleplay servers, featuring a persistent ec
 
 - 💰 Economy system with cash and bank accounts
 - 👨‍👩‍👧‍👦 Family management with ranks and permissions
-- 🗺️ Turf control system with daily payouts
-- 🎮 Roleplay events including heists and shop
+- 🗺️ Turf control system with hourly payouts
+- 🎯 Hit contract system
 - 📊 Reputation system
 - 🏦 Transaction logging
 - 🎒 Inventory system
+- 👥 Regime system for family organization
+- 📝 Assignment system for regime members
 
 ## Setup
 
@@ -46,10 +48,12 @@ All commands use the prefix `!` by default. You can check your server's prefix u
 ### Economy Commands
 
 - `!balance` - Check your current balance
-- `!collect` - Collect your daily money (24h cooldown)
+- `!daily` - Collect your daily money (24h cooldown)
 - `!transfer @user amount` - Transfer money to another user
 - `!deposit amount` - Deposit money into your bank account
 - `!withdraw amount` - Withdraw money from your bank account
+- `!rob @user` - Attempt to rob another user (30% success rate)
+- `!leaderboard` - View the server's wealth leaderboard
 
 ### Family Commands
 
@@ -64,15 +68,15 @@ All commands use the prefix `!` by default. You can check your server's prefix u
 - `!turf list` - List all available turfs
 - `!turf info <name>` - View detailed information about a specific turf
 - `!turf capture <name>` - Attempt to capture a turf for your family
-- `!turf income` - Collect income from your family's turfs
+- `!income` - Collect income from your family's turfs (1h cooldown)
 
 ### Moderator Commands
 
 - `!mod settings` - View current server settings
 - `!mod setprefix prefix` - Set the server's command prefix
 - `!mod setdaily amount` - Set the daily reward amount
-- `!mod setcooldown <type> <hours>` - Set cooldown for turf capture or heists
-  - Types: turf, heist
+- `!mod setcooldown <type> <hours>` - Set cooldown for turf capture
+  - Types: turf
 - `!mod createturfs` - Create all GTA V turfs for the server
 - `!mod ban @user [reason]` - Ban a user from using the bot in this server
 - `!mod unban @user` - Unban a user from using the bot in this server
@@ -207,29 +211,6 @@ Assignment Statuses:
 - completed: Successfully completed assignments
 - failed: Failed assignments
 - expired: Assignments that passed their deadline
-
-## Heist Types
-
-1. Bank Heist
-   - Requires 2-4 players
-   - 40% success chance
-   - Reward: $50,000 - $100,000
-   - 24h jail time if failed
-   - +10 reputation if successful
-
-2. Jewelry Store
-   - Requires 1-3 players
-   - 60% success chance
-   - Reward: $20,000 - $50,000
-   - 12h jail time if failed
-   - +5 reputation if successful
-
-3. Drug Run
-   - Requires 1-2 players
-   - 70% success chance
-   - Reward: $10,000 - $30,000
-   - 8h jail time if failed
-   - +3 reputation if successful
 
 ## Turf System
 

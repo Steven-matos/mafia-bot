@@ -120,17 +120,17 @@ async def register_server(guild):
     except Exception as e:
         logger.error(f"Error registering server {guild.name}: {e}")
 
-def load_extensions():
+async def load_extensions():
     """Load all bot extensions."""
     for extension in INITIAL_EXTENSIONS:
         try:
-            bot.load_extension(extension)
+            await bot.load_extension(extension)
             logger.info(f"Loaded extension: {extension}")
         except Exception as e:
             logger.error(f"Failed to load extension {extension}: {e}")
 
 async def main():
-    """Main function to start the bot."""
+    """Main entry point for the bot."""
     async with bot:
         await load_extensions()
         await bot.start(os.getenv('DISCORD_TOKEN'))
