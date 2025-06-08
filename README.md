@@ -41,6 +41,8 @@ python main.py
 
 ## Commands
 
+All commands use the prefix `!` by default. You can check your server's prefix using `!prefix`.
+
 ### Economy Commands
 
 - `!balance` - Check your current balance
@@ -51,14 +53,11 @@ python main.py
 
 ### Family Commands
 
-- `!createfamily name` - Create a new crime family
-- `!familyinfo [name]` - View family information
-- `!invite @user` - Invite a user to your family
-- `!joinfamily name` - Join a family you've been invited to
-- `!leavefamily` - Leave your current family
-- `!promote @user rank` - Promote a family member
-- `!demote @user rank` - Demote a family member
-- `!kick @user` - Kick a member from your family
+- `!family create name` - Create a new crime family
+- `!family info [name]` - View family information
+- `!family accept invite_id` - Accept a family invite
+- `!family leave` - Leave your current family
+- `!family transfer @user` - Transfer family leadership to another member
 
 ### Turf Commands
 
@@ -70,20 +69,12 @@ python main.py
 ### Moderator Commands
 
 - `!mod settings` - View current server settings
+- `!mod setprefix prefix` - Set the server's command prefix
+- `!mod setdaily amount` - Set the daily reward amount
 - `!mod setcooldown <type> <hours>` - Set cooldown for turf capture or heists
   - Types: turf, heist
 - `!mod createturfs` - Create all GTA V turfs for the server
-  - Creates turfs in regions:
-    - Los Santos City Center
-    - Beach and Port Areas
-    - South Los Santos
-    - East Los Santos
-    - North Los Santos
-    - Blaine County
-    - Special Areas
-    - Arena and Entertainment
-    - Industrial and Manufacturing
-    - Additional Areas
+- `!mod ban @user [reason]` - Ban a user from using the bot in this server
 
 ### Roleplay Commands
 
@@ -93,6 +84,95 @@ python main.py
 - `!heist type` - Start a heist with your family
   - Available types: bank, jewelry, drug_run
 - `!status` - Check your current status
+
+### Hit System Commands
+
+- `!hit request <target> <target_psn> <reward> <description>` - Request a hit contract (Made Men and higher only)
+- `!hit list` - List all active hit contracts
+- `!hit complete <contract_id> <proof_url>` - Complete a hit contract with proof
+  - `proof_url`: URL to image/video proof of the hit
+  - Proof will be reviewed by family leadership
+- `!hit verify <contract_id> <status> [reason]` - Verify a completed hit (Don/Godfather/Underboss only)
+  - `status`: approved or rejected
+  - `reason`: Optional reason for the decision
+- `!hit proof <contract_id>` - View the proof for a completed hit
+- `!hit stats [member]` - View hit statistics for yourself or another member
+  - Shows total hits, successful hits, failed hits, success rate, and total payout
+- `!hit leaderboard [scope]` - View hit statistics leaderboard
+  - `scope`: family (default) or server
+  - Shows top hit contractors ranked by successful hits
+
+### Family Relationship Commands
+
+- `!relationship alliance family_name notes` - Create an alliance with another family (Don only)
+  - Requires being a family leader
+  - Cannot ally with own family
+  - Includes notes about the alliance
+- `!relationship kos family_name reason` - Declare another family as KOS (Don only)
+  - Requires being a family leader
+  - Cannot declare own family as KOS
+  - Includes reason for KOS declaration
+- `!relationship remove family_name` - Remove a relationship with another family (Don only)
+- `!relationship list [family_name]` - List all relationships for a family
+  - Shows both alliances and KOS declarations
+  - Can view any family's relationships
+  - Includes timestamps and notes/reasons
+
+### Family Rank Commands
+
+- `!rank create name display_name emoji order` - Create a new family rank (Don only)
+  - Requires being a family leader
+  - Example: `!rank create godfather "God Father" 👑 1`
+- `!rank list [family_name]` - List all ranks for a family
+  - Shows ranks in order from highest to lowest
+  - Can view any family's ranks
+- `!rank set @member rank_name` - Set a member's family rank (Don only)
+  - Requires being a family leader
+  - Member must be in your family
+- `!rank delete rank_name` - Delete a family rank (Don only)
+  - Requires being a family leader
+  - Cannot delete ranks that are in use
+- `!rank update rank_name field value` - Update a rank's properties (Don only)
+  - Requires being a family leader
+  - Fields: display_name, emoji, rank_order
+
+### Bot Channel Commands
+
+- `!channel set <channel> <type> [announcement_type] [interval_minutes]` - Set a channel for bot announcements
+  - `type`: The type of channel (announcements, logs, etc.)
+  - `announcement_type`: Type of announcements to send (default: all)
+    - `all`: All announcements
+    - `family`: Family-related announcements
+    - `turf`: Turf-related announcements
+    - `economy`: Economy-related announcements
+    - `hits`: Hit-related announcements
+    - `mentorship`: Mentorship-related announcements
+  - `interval_minutes`: How often to send announcements (default: 60)
+- `!channel list` - List all configured bot channels and their settings
+- `!channel update <channel> <announcement_type> [interval_minutes] [enabled]` - Update settings for a specific channel and announcement type
+- `!channel remove <channel> <announcement_type>` - Remove a specific announcement type from a channel
+- `!channel types` - List all available announcement types
+
+### Mentorship Commands
+
+- `!mentor assign @mentor @mentee [notes]` - Assign a mentor to a mentee (Don only)
+  - Mentor must be a Made Man or Capo
+  - Mentee must be a Recruit
+  - Optional notes for the mentorship
+- `!mentor list [family_name]` - List all active mentorships for a family
+- `!mentor end @mentee [reason]` - End a mentorship relationship (Don only)
+- `!mentor my` - View your current mentorship relationships
+
+### Recruitment Commands
+
+- `!recruitment addstep step_number title [requires_image] description` - Add a new step to the recruitment process (Don only)
+- `!recruitment remove step_number` - Remove a recruitment step (Don only)
+
+### Help Commands
+
+- `!help` - Show the main help menu
+- `!help <command>` - Show detailed help for a specific command
+- `!prefix` - Show the bot's command prefix
 
 ## Heist Types
 

@@ -21,8 +21,11 @@ intents.message_content = True
 intents.members = True
 intents.presences = True
 
+# Default prefix for the bot
+DEFAULT_PREFIX = '!'
+
 bot = commands.Bot(
-    command_prefix='!',
+    command_prefix=DEFAULT_PREFIX,
     intents=intents,
     help_command=None  # We'll implement a custom help command
 )
@@ -32,7 +35,14 @@ COGS = [
     'cogs.economy',
     'cogs.turf',
     'cogs.family',
-    'cogs.rp_events'
+    'cogs.rp_events',
+    'cogs.help',
+    'cogs.hits',
+    'cogs.relationships',
+    'cogs.ranks',
+    'cogs.channels',
+    'cogs.mentorship',
+    'cogs.recruitment'
 ]
 
 @bot.event

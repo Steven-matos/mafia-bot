@@ -615,5 +615,513 @@ class SupabaseClient:
             print(f"Error creating server turfs: {str(e)}")
             return False
 
+    async def create_hit_contract(self, target_id: str, target_psn: str, requester_id: str, family_id: str, reward: int, description: str, server_id: str) -> Optional[str]:
+        """Create a new hit contract."""
+        try:
+            data = {
+                "target_id": target_id,
+                "target_psn": target_psn,
+                "requester_id": requester_id,
+                "family_id": family_id,
+                "reward": reward,
+                "description": description,
+                "server_id": server_id,
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            response = self.client.table("hit_contracts").insert(data).execute()
+            return response.data[0]["id"] if response.data else None
+        except Exception as e:
+            print(f"Error creating hit contract: {e}")
+            return None
+
+    async def get_hit_contract(self, contract_id: str) -> Optional[Dict]:
+        """Get hit contract details."""
+        try:
+            response = self.client.table("hit_contracts").select("*").eq("id", contract_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting hit contract: {e}")
+            return None
+
+    async def get_pending_hit_contracts(self, family_id: str) -> List[Dict]:
+        """Get all pending hit contracts for a family."""
+        try:
+            response = self.client.table("hit_contracts").select("*").eq("family_id", family_id).eq("status", "pending").execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting pending hit contracts: {e}")
+            return []
+
+    async def update_hit_contract_status(self, contract_id: str, status: str, approved_by: Optional[str] = None) -> bool:
+        """Update hit contract status."""
+        try:
+            data = {
+                "status": status,
+                "completed_at": datetime.now(timezone.utc).isoformat() if status in ["completed", "failed"] else None
+            }
+            if approved_by:
+                data["approved_by"] = approved_by
+            self.client.table("hit_contracts").update(data).eq("id", contract_id).execute()
+            return True
+        except Exception as e:
+            print(f"Error updating hit contract status: {e}")
+            return False
+
+    async def get_user_hit_contracts(self, user_id: str) -> List[Dict]:
+        """Get all hit contracts involving a user (as target or requester)."""
+        try:
+            response = self.client.table("hit_contracts").select("*").or_(f"target_id.eq.{user_id},requester_id.eq.{user_id}").execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting user hit contracts: {e}")
+            return []
+
+    async def create_family_relationship(self, family_id: str, target_family_id: str, relationship_type: str, created_by: str, notes: str, server_id: str) -> Optional[str]:
+        """Create a new family relationship (alliance or KOS)."""
+        try:
+            data = {
+                "family_id": family_id,
+                "target_family_id": target_family_id,
+                "relationship_type": relationship_type,
+                "created_by": created_by,
+                "notes": notes,
+                "server_id": server_id,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            response = self.client.table("family_relationships").insert(data).execute()
+            return response.data[0]["id"] if response.data else None
+        except Exception as e:
+            print(f"Error creating family relationship: {e}")
+            return None
+
+    async def get_family_relationships(self, family_id: str, relationship_type: Optional[str] = None) -> List[Dict]:
+        """Get all relationships for a family."""
+        try:
+            query = self.client.table("family_relationships").select("*").eq("family_id", family_id)
+            if relationship_type:
+                query = query.eq("relationship_type", relationship_type)
+            response = query.execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting family relationships: {e}")
+            return []
+
+    async def delete_family_relationship(self, relationship_id: str) -> bool:
+        """Delete a family relationship."""
+        try:
+            self.client.table("family_relationships").delete().eq("id", relationship_id).execute()
+            return True
+        except Exception as e:
+            print(f"Error deleting family relationship: {e}")
+            return False
+
+    async def get_family_relationship(self, family_id: str, target_family_id: str) -> Optional[Dict]:
+        """Get relationship between two families."""
+        try:
+            response = self.client.table("family_relationships").select("*").eq("family_id", family_id).eq("target_family_id", target_family_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting family relationship: {e}")
+            return None
+
+    async def create_family_rank(self, family_id: str, name: str, display_name: str, emoji: str, rank_order: int) -> Optional[str]:
+        """Create a new family rank."""
+        try:
+            data = {
+                "family_id": family_id,
+                "name": name,
+                "display_name": display_name,
+                "emoji": emoji,
+                "rank_order": rank_order
+            }
+            result = await self.client.table("family_ranks").insert(data).execute()
+            return result.data[0]["id"] if result.data else None
+        except Exception as e:
+            print(f"Error creating family rank: {str(e)}")
+            return None
+
+    async def get_family_ranks(self, family_id: str) -> List[Dict]:
+        """Get all ranks for a family, ordered by rank_order."""
+        try:
+            result = await self.client.table("family_ranks")\
+                .select("*")\
+                .eq("family_id", family_id)\
+                .order("rank_order")\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting family ranks: {str(e)}")
+            return []
+
+    async def update_family_rank(self, rank_id: str, **kwargs) -> bool:
+        """Update a family rank."""
+        try:
+            result = await self.client.table("family_ranks")\
+                .update(kwargs)\
+                .eq("id", rank_id)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error updating family rank: {str(e)}")
+            return False
+
+    async def delete_family_rank(self, rank_id: str) -> bool:
+        """Delete a family rank."""
+        try:
+            result = await self.client.table("family_ranks")\
+                .delete()\
+                .eq("id", rank_id)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error deleting family rank: {str(e)}")
+            return False
+
+    async def get_user_rank(self, user_id: str) -> Optional[Dict]:
+        """Get a user's family rank."""
+        try:
+            result = await self.client.table("users")\
+                .select("family_rank_id")\
+                .eq("id", user_id)\
+                .execute()
+            
+            if not result.data or not result.data[0].get("family_rank_id"):
+                return None
+
+            rank_result = await self.client.table("family_ranks")\
+                .select("*")\
+                .eq("id", result.data[0]["family_rank_id"])\
+                .execute()
+            
+            return rank_result.data[0] if rank_result.data else None
+        except Exception as e:
+            print(f"Error getting user rank: {str(e)}")
+            return None
+
+    async def set_user_rank(self, user_id: str, rank_id: str) -> bool:
+        """Set a user's family rank."""
+        try:
+            result = await self.client.table("users")\
+                .update({"family_rank_id": rank_id})\
+                .eq("id", user_id)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error setting user rank: {str(e)}")
+            return False
+
+    async def set_bot_channel(self, server_id: str, channel_id: str, channel_type: str, announcement_type: str = 'all', interval_minutes: int = 60) -> bool:
+        """Set a bot channel for a specific type and announcement type."""
+        try:
+            data = {
+                "server_id": server_id,
+                "channel_id": channel_id,
+                "channel_type": channel_type,
+                "announcement_type": announcement_type,
+                "interval_minutes": interval_minutes,
+                "is_enabled": True,
+                "last_announcement": None
+            }
+            result = await self.client.table("bot_channels")\
+                .upsert(data, on_conflict="server_id,channel_id,announcement_type")\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error setting bot channel: {str(e)}")
+            return False
+
+    async def get_bot_channel(self, server_id: str, channel_type: str, announcement_type: str = 'all') -> Optional[Dict]:
+        """Get a bot channel ID and settings for a specific type and announcement type."""
+        try:
+            result = await self.client.table("bot_channels")\
+                .select("*")\
+                .eq("server_id", server_id)\
+                .eq("channel_type", channel_type)\
+                .eq("announcement_type", announcement_type)\
+                .execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting bot channel: {str(e)}")
+            return None
+
+    async def get_all_bot_channels(self, server_id: str) -> List[Dict]:
+        """Get all bot channels and their settings for a server."""
+        try:
+            result = await self.client.table("bot_channels")\
+                .select("*")\
+                .eq("server_id", server_id)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting all bot channels: {str(e)}")
+            return []
+
+    async def update_bot_channel_settings(self, server_id: str, channel_id: str, announcement_type: str, **kwargs) -> bool:
+        """Update settings for a specific bot channel announcement type."""
+        try:
+            result = await self.client.table("bot_channels")\
+                .update(kwargs)\
+                .eq("server_id", server_id)\
+                .eq("channel_id", channel_id)\
+                .eq("announcement_type", announcement_type)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error updating bot channel settings: {str(e)}")
+            return False
+
+    async def delete_bot_channel(self, server_id: str, channel_id: str, announcement_type: str) -> bool:
+        """Delete a specific bot channel announcement type."""
+        try:
+            result = await self.client.table("bot_channels")\
+                .delete()\
+                .eq("server_id", server_id)\
+                .eq("channel_id", channel_id)\
+                .eq("announcement_type", announcement_type)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error deleting bot channel: {str(e)}")
+            return False
+
+    async def get_announcement_channels(self, server_id: str, announcement_type: str) -> List[Dict]:
+        """Get all channels that should receive a specific type of announcement."""
+        try:
+            result = await self.client.table("bot_channels")\
+                .select("*")\
+                .eq("server_id", server_id)\
+                .or_(f"announcement_type.eq.{announcement_type},announcement_type.eq.all")\
+                .eq("is_enabled", True)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting announcement channels: {str(e)}")
+            return []
+
+    async def create_mentorship(self, mentor_id: str, mentee_id: str, family_id: str, notes: str = None) -> Optional[str]:
+        """Create a new mentorship relationship."""
+        try:
+            data = {
+                "mentor_id": mentor_id,
+                "mentee_id": mentee_id,
+                "family_id": family_id,
+                "status": "active",
+                "notes": notes
+            }
+            result = await self.client.table("mentorships").insert(data).execute()
+            return result.data[0]["id"] if result.data else None
+        except Exception as e:
+            print(f"Error creating mentorship: {str(e)}")
+            return None
+
+    async def get_mentorship(self, mentorship_id: str) -> Optional[Dict]:
+        """Get a mentorship relationship by ID."""
+        try:
+            result = await self.client.table("mentorships")\
+                .select("*")\
+                .eq("id", mentorship_id)\
+                .execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting mentorship: {str(e)}")
+            return None
+
+    async def get_user_mentorships(self, user_id: str, role: str = "mentor") -> List[Dict]:
+        """Get all mentorships for a user, either as mentor or mentee."""
+        try:
+            field = f"{role}_id"
+            result = await self.client.table("mentorships")\
+                .select("*")\
+                .eq(field, user_id)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting user mentorships: {str(e)}")
+            return []
+
+    async def get_family_mentorships(self, family_id: str, status: str = "active") -> List[Dict]:
+        """Get all mentorships for a family."""
+        try:
+            result = await self.client.table("mentorships")\
+                .select("*")\
+                .eq("family_id", family_id)\
+                .eq("status", status)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting family mentorships: {str(e)}")
+            return []
+
+    async def update_mentorship(self, mentorship_id: str, **kwargs) -> bool:
+        """Update a mentorship relationship."""
+        try:
+            result = await self.client.table("mentorships")\
+                .update(kwargs)\
+                .eq("id", mentorship_id)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error updating mentorship: {str(e)}")
+            return False
+
+    async def end_mentorship(self, mentorship_id: str, status: str = "completed", notes: str = None) -> bool:
+        """End a mentorship relationship."""
+        try:
+            data = {
+                "status": status,
+                "end_date": datetime.now(timezone.utc).isoformat(),
+                "notes": notes
+            }
+            result = await self.client.table("mentorships")\
+                .update(data)\
+                .eq("id", mentorship_id)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error ending mentorship: {str(e)}")
+            return False
+
+    async def update_hit_stats(self, user_id: str, server_id: str, family_id: str, success: bool, payout: int = 0) -> bool:
+        """Update hit statistics for a user."""
+        try:
+            # First try to get existing stats
+            result = await self.client.table("hit_stats")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .eq("server_id", server_id)\
+                .eq("family_id", family_id)\
+                .execute()
+
+            if result.data:
+                # Update existing stats
+                stats = result.data[0]
+                update_data = {
+                    "successful_hits": stats["successful_hits"] + (1 if success else 0),
+                    "failed_hits": stats["failed_hits"] + (0 if success else 1),
+                    "total_hits": stats["total_hits"] + 1,
+                    "total_payout": stats["total_payout"] + (payout if success else 0)
+                }
+                result = await self.client.table("hit_stats")\
+                    .update(update_data)\
+                    .eq("id", stats["id"])\
+                    .execute()
+            else:
+                # Create new stats
+                data = {
+                    "user_id": user_id,
+                    "server_id": server_id,
+                    "family_id": family_id,
+                    "successful_hits": 1 if success else 0,
+                    "failed_hits": 0 if success else 1,
+                    "total_hits": 1,
+                    "total_payout": payout if success else 0
+                }
+                result = await self.client.table("hit_stats")\
+                    .insert(data)\
+                    .execute()
+
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error updating hit stats: {str(e)}")
+            return False
+
+    async def get_hit_stats(self, user_id: str, server_id: str, family_id: str) -> Optional[Dict]:
+        """Get hit statistics for a user."""
+        try:
+            result = await self.client.table("hit_stats")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .eq("server_id", server_id)\
+                .eq("family_id", family_id)\
+                .execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting hit stats: {str(e)}")
+            return None
+
+    async def get_family_hit_leaderboard(self, server_id: str, family_id: str, limit: int = 10) -> List[Dict]:
+        """Get hit statistics leaderboard for a family."""
+        try:
+            result = await self.client.table("hit_stats")\
+                .select("*")\
+                .eq("server_id", server_id)\
+                .eq("family_id", family_id)\
+                .order("successful_hits", desc=True)\
+                .limit(limit)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting family hit leaderboard: {str(e)}")
+            return []
+
+    async def get_server_hit_leaderboard(self, server_id: str, limit: int = 10) -> List[Dict]:
+        """Get hit statistics leaderboard for a server."""
+        try:
+            result = await self.client.table("hit_stats")\
+                .select("*")\
+                .eq("server_id", server_id)\
+                .order("successful_hits", desc=True)\
+                .limit(limit)\
+                .execute()
+            return result.data
+        except Exception as e:
+            print(f"Error getting server hit leaderboard: {str(e)}")
+            return []
+
+    async def update_hit_contract_proof(self, contract_id: str, proof_url: str) -> bool:
+        """Update a hit contract with proof of completion."""
+        try:
+            result = await self.client.table("hit_contracts")\
+                .update({"proof_url": proof_url, "status": "completed"})\
+                .eq("id", contract_id)\
+                .execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error updating hit contract proof: {str(e)}")
+            return False
+
+    async def verify_hit_contract(self, contract_id: str, verifier_id: str, server_id: str, status: str, reason: str = None) -> bool:
+        """Verify a hit contract completion."""
+        try:
+            # Create verification record
+            verification_data = {
+                "contract_id": contract_id,
+                "verifier_id": verifier_id,
+                "server_id": server_id,
+                "status": status,
+                "reason": reason
+            }
+            result = await self.client.table("hit_verifications")\
+                .insert(verification_data)\
+                .execute()
+
+            if not result.data:
+                return False
+
+            # Update contract status
+            contract_status = "verified" if status == "approved" else "failed"
+            result = await self.client.table("hit_contracts")\
+                .update({"status": contract_status})\
+                .eq("id", contract_id)\
+                .execute()
+
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error verifying hit contract: {str(e)}")
+            return False
+
+    async def get_hit_verification(self, contract_id: str) -> Optional[Dict]:
+        """Get verification details for a hit contract."""
+        try:
+            result = await self.client.table("hit_verifications")\
+                .select("*")\
+                .eq("contract_id", contract_id)\
+                .execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting hit verification: {str(e)}")
+            return None
+
 # Create a singleton instance
 supabase = SupabaseClient() 
