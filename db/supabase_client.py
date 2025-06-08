@@ -3,8 +3,55 @@ from typing import Optional, Dict, List, Any
 from datetime import datetime, timezone, timedelta
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import asyncio
+import logging
+from collections import defaultdict
 
-load_dotenv()
+logger = logging.getLogger('mafia-bot')
+
+class RateLimiter:
+    def __init__(self, max_calls: int, time_window: int):
+        """
+        Initialize rate limiter.
+        :param max_calls: Maximum number of calls allowed in the time window
+        :param time_window: Time window in seconds
+        """
+        self.max_calls = max_calls
+        self.time_window = time_window
+        self.calls = defaultdict(list)
+        self.lock = asyncio.Lock()
+
+    async def acquire(self, key: str) -> bool:
+        """
+        Try to acquire a rate limit token.
+        :param key: Rate limit key (e.g., user_id, server_id)
+        :return: True if token acquired, False if rate limited
+        """
+        async with self.lock:
+            now = datetime.now(timezone.utc)
+            # Remove old calls outside the time window
+            self.calls[key] = [call_time for call_time in self.calls[key]
+                             if (now - call_time).total_seconds() < self.time_window]
+            
+            if len(self.calls[key]) >= self.max_calls:
+                return False
+            
+            self.calls[key].append(now)
+            return True
+
+    async def wait_for_token(self, key: str, timeout: int = 30) -> bool:
+        """
+        Wait for a rate limit token to become available.
+        :param key: Rate limit key
+        :param timeout: Maximum time to wait in seconds
+        :return: True if token acquired, False if timed out
+        """
+        start_time = datetime.now(timezone.utc)
+        while (datetime.now(timezone.utc) - start_time).total_seconds() < timeout:
+            if await self.acquire(key):
+                return True
+            await asyncio.sleep(0.1)
+        return False
 
 class SupabaseClient:
     def __init__(self):
@@ -13,63 +60,111 @@ class SupabaseClient:
         if not self.url or not self.key:
             raise ValueError("Missing Supabase credentials in .env file")
         self.client: Client = create_client(self.url, self.key)
+        
+        # Initialize rate limiters
+        # 100 calls per minute for general operations
+        self.general_limiter = RateLimiter(max_calls=100, time_window=60)
+        # 20 calls per minute for write operations
+        self.write_limiter = RateLimiter(max_calls=20, time_window=60)
+        # 5 calls per minute for high-impact operations
+        self.high_impact_limiter = RateLimiter(max_calls=5, time_window=60)
+
+    async def _execute_with_rate_limit(self, operation: str, key: str, func, *args, **kwargs):
+        """
+        Execute a function with rate limiting.
+        :param operation: Operation type ('read', 'write', 'high_impact')
+        :param key: Rate limit key
+        :param func: Function to execute
+        :param args: Function arguments
+        :param kwargs: Function keyword arguments
+        :return: Function result
+        """
+        # Select appropriate rate limiter
+        limiter = {
+            'read': self.general_limiter,
+            'write': self.write_limiter,
+            'high_impact': self.high_impact_limiter
+        }.get(operation, self.general_limiter)
+
+        # Wait for rate limit token
+        if not await limiter.wait_for_token(key):
+            logger.warning(f"Rate limit exceeded for {operation} operation with key {key}")
+            raise Exception("Rate limit exceeded. Please try again later.")
+
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error executing {operation} operation: {str(e)}")
+            raise
 
     # Server-related methods
     async def register_server(self, server_id: str, name: str, is_family_server: bool = False, family_id: Optional[str] = None) -> bool:
         """Register a new server in the database."""
-        try:
-            data = {
-                "id": server_id,
-                "name": name,
-                "is_family_server": is_family_server,
-                "family_id": family_id
-            }
-            self.client.table("servers").insert(data).execute()
-            
-            # Create default server settings
-            settings_data = {
-                "server_id": server_id,
-                "prefix": "!",
-                "daily_amount": 1000,
-                "turf_capture_cooldown": 24,
-                "heist_cooldown": 12
-            }
-            self.client.table("server_settings").insert(settings_data).execute()
-            return True
-        except Exception as e:
-            print(f"Error registering server: {e}")
-            return False
+        async def _register():
+            try:
+                data = {
+                    "id": server_id,
+                    "name": name,
+                    "is_family_server": is_family_server,
+                    "family_id": family_id
+                }
+                self.client.table("servers").insert(data).execute()
+                
+                # Create default server settings
+                settings_data = {
+                    "server_id": server_id,
+                    "prefix": "!",
+                    "daily_amount": 1000,
+                    "turf_capture_cooldown": 24,
+                    "heist_cooldown": 12
+                }
+                self.client.table("server_settings").insert(settings_data).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error registering server: {e}")
+                return False
+
+        return await self._execute_with_rate_limit('write', server_id, _register)
 
     async def get_server_settings(self, server_id: str) -> Optional[Dict]:
         """Get server settings."""
-        try:
-            response = self.client.table("server_settings").select("*").eq("server_id", server_id).execute()
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"Error getting server settings: {e}")
-            return None
+        async def _get_settings():
+            try:
+                response = self.client.table("server_settings").select("*").eq("server_id", server_id).execute()
+                return response.data[0] if response.data else None
+            except Exception as e:
+                logger.error(f"Error getting server settings: {e}")
+                return None
+
+        return await self._execute_with_rate_limit('read', server_id, _get_settings)
 
     async def update_server_settings(self, server_id: str, settings: Dict) -> bool:
         """Update server settings."""
-        try:
-            self.client.table("server_settings").update(settings).eq("server_id", server_id).execute()
-            return True
-        except Exception as e:
-            print(f"Error updating server settings: {e}")
-            return False
+        async def _update_settings():
+            try:
+                self.client.table("server_settings").update(settings).eq("server_id", server_id).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error updating server settings: {e}")
+                return False
+
+        return await self._execute_with_rate_limit('write', server_id, _update_settings)
 
     async def add_user_to_server(self, user_id: str, server_id: str) -> bool:
         """Add a user to a server."""
-        try:
-            data = {
-                "user_id": user_id,
-                "server_id": server_id
-            }
-            self.client.table("user_servers").insert(data).execute()
-            return True
-        except Exception as e:
-            print(f"Error adding user to server: {e}")
-            return False
+        async def _add_user():
+            try:
+                data = {
+                    "user_id": user_id,
+                    "server_id": server_id
+                }
+                self.client.table("user_servers").insert(data).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error adding user to server: {e}")
+                return False
+
+        return await self._execute_with_rate_limit('write', f"{user_id}:{server_id}", _add_user)
 
     async def get_user_servers(self, user_id: str) -> List[Dict]:
         """Get all servers a user is in."""
@@ -92,40 +187,49 @@ class SupabaseClient:
     # Existing methods with server context
     async def get_user(self, user_id: str) -> Optional[Dict]:
         """Get user data from the database."""
-        try:
-            response = self.client.table("users").select("*").eq("id", user_id).execute()
-            return response.data[0] if response.data else None
-        except Exception as e:
-            print(f"Error getting user: {e}")
-            return None
+        async def _get_user():
+            try:
+                response = self.client.table("users").select("*").eq("id", user_id).execute()
+                return response.data[0] if response.data else None
+            except Exception as e:
+                logger.error(f"Error getting user: {e}")
+                return None
+
+        return await self._execute_with_rate_limit('read', user_id, _get_user)
 
     async def create_user(self, user_id: str, username: str) -> bool:
         """Create a new user in the database."""
-        try:
-            data = {
-                "id": user_id,
-                "username": username,
-                "money": 0,
-                "bank": 0,
-                "reputation": 0,
-                "inventory": {},
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            self.client.table("users").insert(data).execute()
-            return True
-        except Exception as e:
-            print(f"Error creating user: {e}")
-            return False
+        async def _create_user():
+            try:
+                data = {
+                    "id": user_id,
+                    "username": username,
+                    "money": 0,
+                    "bank": 0,
+                    "reputation": 0,
+                    "inventory": {},
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                self.client.table("users").insert(data).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error creating user: {e}")
+                return False
+
+        return await self._execute_with_rate_limit('write', user_id, _create_user)
 
     async def update_user_money(self, user_id: str, amount: int, is_bank: bool = False) -> bool:
         """Update user's money or bank balance."""
-        try:
-            field = "bank" if is_bank else "money"
-            self.client.table("users").update({field: amount}).eq("id", user_id).execute()
-            return True
-        except Exception as e:
-            print(f"Error updating user money: {e}")
-            return False
+        async def _update_money():
+            try:
+                field = "bank" if is_bank else "money"
+                self.client.table("users").update({field: amount}).eq("id", user_id).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error updating user money: {e}")
+                return False
+
+        return await self._execute_with_rate_limit('write', user_id, _update_money)
 
     async def get_family(self, family_id: str) -> Optional[Dict]:
         """Get family data from the database."""
@@ -181,22 +285,25 @@ class SupabaseClient:
                                notes: Optional[str] = None,
                                server_id: Optional[str] = None) -> bool:
         """Record a transaction in the database."""
-        try:
-            data = {
-                "user_id": user_id,
-                "type": type,
-                "amount": amount,
-                "target_user_id": target_user_id,
-                "item_id": item_id,
-                "notes": notes,
-                "server_id": server_id,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }
-            self.client.table("transactions").insert(data).execute()
-            return True
-        except Exception as e:
-            print(f"Error recording transaction: {e}")
-            return False
+        async def _record_transaction():
+            try:
+                data = {
+                    "user_id": user_id,
+                    "type": type,
+                    "amount": amount,
+                    "target_user_id": target_user_id,
+                    "item_id": item_id,
+                    "notes": notes,
+                    "server_id": server_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                self.client.table("transactions").insert(data).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error recording transaction: {e}")
+                return False
+
+        return await self._execute_with_rate_limit('write', f"{user_id}:{server_id}", _record_transaction)
 
     async def get_shop_items(self) -> List[Dict]:
         """Get all shop items from the database."""
@@ -209,48 +316,53 @@ class SupabaseClient:
 
     async def reset_user(self, user_id: str) -> bool:
         """Reset a user's progress."""
-        try:
-            # Reset user's money and bank
-            await self.client.table("users").update({
-                "money": 0,
-                "bank": 0,
-                "family_id": None,
-                "last_daily": None,
-                "last_heist": None
-            }).eq("id", user_id).execute()
-            return True
-        except Exception as e:
-            print(f"Error resetting user: {str(e)}")
-            return False
+        async def _reset_user():
+            try:
+                await self.client.table("users").update({
+                    "money": 0,
+                    "bank": 0,
+                    "family_id": None,
+                    "last_daily": None,
+                    "last_heist": None
+                }).eq("id", user_id).execute()
+                return True
+            except Exception as e:
+                logger.error(f"Error resetting user: {str(e)}")
+                return False
+
+        return await self._execute_with_rate_limit('high_impact', user_id, _reset_user)
 
     async def reset_family(self, family_id: str) -> bool:
         """Reset a family's progress."""
-        try:
-            # Reset family's money and reputation
-            await self.client.table("families").update({
-                "family_money": 0,
-                "reputation": 0
-            }).eq("id", family_id).execute()
+        async def _reset_family():
+            try:
+                # Reset family's money and reputation
+                await self.client.table("families").update({
+                    "family_money": 0,
+                    "reputation": 0
+                }).eq("id", family_id).execute()
 
-            # Reset all family members
-            await self.client.table("users").update({
-                "money": 0,
-                "bank": 0,
-                "family_id": None,
-                "last_daily": None,
-                "last_heist": None
-            }).eq("family_id", family_id).execute()
+                # Reset all family members
+                await self.client.table("users").update({
+                    "money": 0,
+                    "bank": 0,
+                    "family_id": None,
+                    "last_daily": None,
+                    "last_heist": None
+                }).eq("family_id", family_id).execute()
 
-            # Reset all family turfs
-            await self.client.table("turfs").update({
-                "owner_id": None,
-                "last_captured": None
-            }).eq("owner_id", family_id).execute()
+                # Reset all family turfs
+                await self.client.table("turfs").update({
+                    "owner_id": None,
+                    "last_captured": None
+                }).eq("owner_id", family_id).execute()
 
-            return True
-        except Exception as e:
-            print(f"Error resetting family: {str(e)}")
-            return False
+                return True
+            except Exception as e:
+                logger.error(f"Error resetting family: {str(e)}")
+                return False
+
+        return await self._execute_with_rate_limit('high_impact', family_id, _reset_family)
 
     async def get_server_transactions(self, server_id: str, days: int) -> List[Dict]:
         """Get all transactions for a server in the last X days."""

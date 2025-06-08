@@ -4,18 +4,61 @@ from discord import app_commands
 from typing import Optional, Union
 from datetime import datetime, timedelta
 import pytz
+import logging
 from utils.checks import is_family_don, is_family_member
 from utils.database import supabase
+
+logger = logging.getLogger('mafia-bot')
+
+# Security constants
+MAX_PREFIX_LENGTH = 5
+MAX_DAILY_AMOUNT = 1000000  # $1M max daily
+MIN_COOLDOWN = 1  # Minimum cooldown in hours
+MAX_COOLDOWN = 168  # Maximum cooldown in hours (1 week)
+MAX_AUDIT_DAYS = 30  # Maximum days for audit log
+MAX_BAN_REASON_LENGTH = 1000  # Maximum length for ban reason
 
 class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._last_command = {}  # For rate limiting
+
+    def is_admin():
+        """Check if user has administrator permissions."""
+        async def predicate(ctx):
+            return ctx.author.guild_permissions.administrator
+        return commands.check(predicate)
 
     def is_mod():
         """Check if user has moderator permissions."""
         async def predicate(ctx):
             return ctx.author.guild_permissions.manage_guild
         return commands.check(predicate)
+
+    def rate_limit(self, ctx, seconds: int = 5):
+        """Rate limit command usage."""
+        current_time = datetime.now().timestamp()
+        last_used = self._last_command.get(ctx.author.id, 0)
+        
+        if current_time - last_used < seconds:
+            return False
+        
+        self._last_command[ctx.author.id] = current_time
+        return True
+
+    async def log_mod_action(self, ctx, action: str, target: Union[discord.Member, str], reason: Optional[str] = None):
+        """Log moderation actions to database."""
+        try:
+            await supabase.table('mod_logs').insert({
+                'server_id': str(ctx.guild.id),
+                'moderator_id': str(ctx.author.id),
+                'action': action,
+                'target_id': str(target.id) if isinstance(target, discord.Member) else target,
+                'reason': reason,
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }).execute()
+        except Exception as e:
+            logger.error(f"Failed to log moderation action: {str(e)}")
 
     @commands.group(invoke_without_command=True)
     @is_mod()
@@ -28,6 +71,10 @@ class Moderation(commands.Cog):
     async def view_settings(self, ctx):
         """View current server settings."""
         try:
+            if not self.rate_limit(ctx):
+                await ctx.send("Please wait a few seconds before using this command again.")
+                return
+
             settings = await supabase.get_server_settings(str(ctx.guild.id))
             if not settings:
                 await ctx.send("Server settings not found! Please contact an administrator.")
@@ -45,15 +92,25 @@ class Moderation(commands.Cog):
 
             await ctx.send(embed=embed)
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in view_settings: {str(e)}")
+            await ctx.send("An error occurred while fetching server settings.")
 
     @mod.command(name="setprefix")
-    @is_mod()
+    @is_admin()  # Only admins can change prefix
     async def set_prefix(self, ctx, new_prefix: str):
         """Set the server's command prefix."""
         try:
-            if len(new_prefix) > 5:
-                await ctx.send("Prefix must be 5 characters or less!")
+            if not self.rate_limit(ctx, 10):  # 10 second cooldown for prefix changes
+                await ctx.send("Please wait 10 seconds before changing the prefix again.")
+                return
+
+            if len(new_prefix) > MAX_PREFIX_LENGTH:
+                await ctx.send(f"Prefix must be {MAX_PREFIX_LENGTH} characters or less!")
+                return
+
+            # Validate prefix characters
+            if not all(c.isalnum() or c in '!@#$%^&*()_+-=[]{}|;:,.<>?/~`' for c in new_prefix):
+                await ctx.send("Prefix contains invalid characters!")
                 return
 
             success = await supabase.update_server_settings(
@@ -62,19 +119,25 @@ class Moderation(commands.Cog):
             )
 
             if success:
+                await self.log_mod_action(ctx, "set_prefix", new_prefix)
                 await ctx.send(f"Command prefix updated to: `{new_prefix}`")
             else:
                 await ctx.send("Failed to update prefix. Please try again.")
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in set_prefix: {str(e)}")
+            await ctx.send("An error occurred while updating the prefix.")
 
     @mod.command(name="setdaily")
-    @is_mod()
+    @is_admin()  # Only admins can change daily amount
     async def set_daily(self, ctx, amount: int):
         """Set the daily reward amount."""
         try:
-            if amount < 0:
-                await ctx.send("Amount must be positive!")
+            if not self.rate_limit(ctx, 10):
+                await ctx.send("Please wait 10 seconds before changing the daily amount again.")
+                return
+
+            if amount < 0 or amount > MAX_DAILY_AMOUNT:
+                await ctx.send(f"Amount must be between 0 and ${MAX_DAILY_AMOUNT:,}!")
                 return
 
             success = await supabase.update_server_settings(
@@ -83,19 +146,25 @@ class Moderation(commands.Cog):
             )
 
             if success:
+                await self.log_mod_action(ctx, "set_daily", str(amount))
                 await ctx.send(f"Daily reward amount updated to: ${amount:,}")
             else:
                 await ctx.send("Failed to update daily amount. Please try again.")
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in set_daily: {str(e)}")
+            await ctx.send("An error occurred while updating the daily amount.")
 
     @mod.command(name="setcooldown")
-    @is_mod()
+    @is_admin()  # Only admins can change cooldowns
     async def set_cooldown(self, ctx, type: str, hours: int):
         """Set cooldown for turf capture or heists."""
         try:
-            if hours < 1:
-                await ctx.send("Cooldown must be at least 1 hour!")
+            if not self.rate_limit(ctx, 10):
+                await ctx.send("Please wait 10 seconds before changing cooldowns again.")
+                return
+
+            if hours < MIN_COOLDOWN or hours > MAX_COOLDOWN:
+                await ctx.send(f"Cooldown must be between {MIN_COOLDOWN} and {MAX_COOLDOWN} hours!")
                 return
 
             if type.lower() not in ["turf", "heist"]:
@@ -109,11 +178,13 @@ class Moderation(commands.Cog):
             )
 
             if success:
+                await self.log_mod_action(ctx, "set_cooldown", f"{type}:{hours}")
                 await ctx.send(f"{type.title()} cooldown updated to {hours} hours.")
             else:
                 await ctx.send("Failed to update cooldown. Please try again.")
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in set_cooldown: {str(e)}")
+            await ctx.send("An error occurred while updating the cooldown.")
 
     @mod.command(name="userinfo")
     @is_mod()
@@ -471,6 +542,14 @@ class Moderation(commands.Cog):
     async def audit_log(self, ctx, days: int = 7):
         """View recent server activity audit log"""
         try:
+            if not self.rate_limit(ctx, 10):
+                await ctx.send("Please wait 10 seconds before checking the audit log again.")
+                return
+
+            if days < 1 or days > MAX_AUDIT_DAYS:
+                await ctx.send(f"Days must be between 1 and {MAX_AUDIT_DAYS}!")
+                return
+
             # Get recent transactions
             transactions = supabase.table('transactions').select('*').gte('timestamp', (datetime.now(pytz.UTC) - timedelta(days=days)).isoformat()).execute()
             
@@ -533,54 +612,86 @@ class Moderation(commands.Cog):
 
             await ctx.send(embed=embed)
         except Exception as e:
-            await ctx.send(f"❌ Error generating audit log: {str(e)}")
+            logger.error(f"Error in audit_log: {str(e)}")
+            await ctx.send("An error occurred while fetching the audit log.")
 
     @mod.command(name="ban")
     @is_mod()
     async def ban_user(self, ctx, member: discord.Member, *, reason: Optional[str] = None):
-        """Ban a user from using the bot in this server."""
+        """Ban a user from using the bot."""
         try:
-            # Check if user is already banned in this server
-            banned_users = await supabase.get_banned_users(str(ctx.guild.id))
-            if any(ban["user_id"] == str(member.id) for ban in banned_users):
-                await ctx.send(f"{member.mention} is already banned in this server.")
+            if not self.rate_limit(ctx, 5):
+                await ctx.send("Please wait 5 seconds before banning another user.")
                 return
 
-            # Ban user
-            success = await supabase.ban_user(str(member.id), str(ctx.guild.id), reason)
+            # Check if user is trying to ban themselves
+            if member.id == ctx.author.id:
+                await ctx.send("You cannot ban yourself!")
+                return
+
+            # Check if user is trying to ban a bot
+            if member.bot:
+                await ctx.send("You cannot ban bots!")
+                return
+
+            # Check if user is trying to ban someone with higher permissions
+            if member.top_role >= ctx.author.top_role:
+                await ctx.send("You cannot ban someone with higher or equal permissions!")
+                return
+
+            # Validate reason length
+            if reason and len(reason) > MAX_BAN_REASON_LENGTH:
+                await ctx.send(f"Ban reason must be {MAX_BAN_REASON_LENGTH} characters or less!")
+                return
+
+            # Check if user is already banned
+            existing_ban = await supabase.get_banned_user(str(member.id), str(ctx.guild.id))
+            if existing_ban:
+                await ctx.send("This user is already banned!")
+                return
+
+            # Ban the user
+            success = await supabase.ban_user(
+                user_id=str(member.id),
+                server_id=str(ctx.guild.id),
+                reason=reason
+            )
+
             if success:
-                embed = discord.Embed(
-                    title="🚫 User Banned",
-                    description=f"{member.mention} has been banned from using the bot in this server.",
-                    color=discord.Color.red()
-                )
-                if reason:
-                    embed.add_field(name="Reason", value=reason)
-                await ctx.send(embed=embed)
+                await self.log_mod_action(ctx, "ban", member, reason)
+                await ctx.send(f"Successfully banned {member.mention} from using the bot.")
             else:
                 await ctx.send("Failed to ban user. Please try again.")
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in ban_user: {str(e)}")
+            await ctx.send("An error occurred while banning the user.")
 
     @mod.command(name="unban")
     @is_mod()
     async def unban_user(self, ctx, member: discord.Member):
-        """Unban a user from using the bot in this server."""
+        """Unban a user from using the bot."""
         try:
-            # Check if user is banned in this server
-            banned_users = await supabase.get_banned_users(str(ctx.guild.id))
-            if not any(ban["user_id"] == str(member.id) for ban in banned_users):
-                await ctx.send(f"{member.mention} is not banned in this server.")
+            if not self.rate_limit(ctx, 5):
+                await ctx.send("Please wait 5 seconds before unbanning another user.")
                 return
 
-            # Unban user
+            # Check if user is banned
+            existing_ban = await supabase.get_banned_user(str(member.id), str(ctx.guild.id))
+            if not existing_ban:
+                await ctx.send("This user is not banned!")
+                return
+
+            # Unban the user
             success = await supabase.unban_user(str(member.id), str(ctx.guild.id))
+
             if success:
-                await ctx.send(f"{member.mention} has been unbanned from using the bot in this server.")
+                await self.log_mod_action(ctx, "unban", member)
+                await ctx.send(f"Successfully unbanned {member.mention} from using the bot.")
             else:
                 await ctx.send("Failed to unban user. Please try again.")
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            logger.error(f"Error in unban_user: {str(e)}")
+            await ctx.send("An error occurred while unbanning the user.")
 
     @mod.command(name="banned")
     @is_mod()

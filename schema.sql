@@ -1,6 +1,29 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Create mod_logs table for audit logging
+CREATE TABLE mod_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    server_id TEXT REFERENCES servers(id),
+    moderator_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    reason TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Create security_settings table
+CREATE TABLE security_settings (
+    server_id TEXT PRIMARY KEY REFERENCES servers(id),
+    max_transfer_amount INTEGER DEFAULT 1000000,
+    max_daily_amount INTEGER DEFAULT 10000,
+    min_cooldown INTEGER DEFAULT 1,
+    max_cooldown INTEGER DEFAULT 168,
+    max_ban_reason_length INTEGER DEFAULT 1000,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
 -- Servers table
 CREATE TABLE servers (
     id TEXT PRIMARY KEY,
@@ -797,4 +820,45 @@ CREATE TABLE IF NOT EXISTS regime_distribution (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(family_id, regime_id)
-); 
+);
+
+-- Add security constraints to existing tables
+ALTER TABLE users
+ADD CONSTRAINT positive_money CHECK (money >= 0),
+ADD CONSTRAINT positive_bank CHECK (bank >= 0);
+
+ALTER TABLE families
+ADD CONSTRAINT positive_family_money CHECK (family_money >= 0),
+ADD CONSTRAINT positive_reputation CHECK (reputation >= 0);
+
+ALTER TABLE transactions
+ADD CONSTRAINT positive_amount CHECK (amount > 0);
+
+ALTER TABLE hit_contracts
+ADD CONSTRAINT positive_reward CHECK (reward > 0);
+
+-- Add indexes for security-related queries
+CREATE INDEX idx_mod_logs_server ON mod_logs(server_id);
+CREATE INDEX idx_mod_logs_moderator ON mod_logs(moderator_id);
+CREATE INDEX idx_mod_logs_timestamp ON mod_logs(timestamp);
+CREATE INDEX idx_security_settings_server ON security_settings(server_id);
+
+-- Add trigger for updating timestamps
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Add triggers to tables that need timestamp updates
+CREATE TRIGGER update_servers_updated_at
+    BEFORE UPDATE ON servers
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_security_settings_updated_at
+    BEFORE UPDATE ON security_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column(); 
