@@ -75,15 +75,22 @@ All commands use the prefix `!` by default. You can check your server's prefix u
   - Types: turf, heist
 - `!mod createturfs` - Create all GTA V turfs for the server
 - `!mod ban @user [reason]` - Ban a user from using the bot in this server
-
-### Roleplay Commands
-
-- `!shop` - View available items in the shop
-- `!buy item_id [quantity]` - Buy items from the shop
-- `!inventory` - View your inventory
-- `!heist type` - Start a heist with your family
-  - Available types: bank, jewelry, drug_run
-- `!status` - Check your current status
+- `!mod unban @user` - Unban a user from using the bot in this server
+- `!mod banned` - List all banned users
+- `!mod userinfo @user` - Get detailed information about a user
+  - Shows Discord info, family info, regime info, hit statistics, and economy info
+- `!mod serverstats` - View detailed server statistics
+  - Shows member counts, family statistics, hit statistics, and top families
+- `!mod resetuser @user` - Reset a user's data (removes from family, resets balance)
+- `!mod resetfamily family_name` - Reset a family's data (removes all members, resets balance)
+- `!mod cleanup` - Clean up database entries for users who have left the server
+  - Removes data for users no longer in the server
+  - Requires confirmation before proceeding
+- `!mod backup` - Create a backup of important server data
+  - Exports families, users, family members, hit stats, and regimes to a JSON file
+- `!mod audit [days]` - View recent server activity audit log
+  - Shows transaction summaries, hit contract statistics, and family changes
+  - Default time period is 7 days
 
 ### Hit System Commands
 
@@ -173,6 +180,33 @@ All commands use the prefix `!` by default. You can check your server's prefix u
 - `!help` - Show the main help menu
 - `!help <command>` - Show detailed help for a specific command
 - `!prefix` - Show the bot's command prefix
+
+### Regime Commands
+- `!regime create <name> <leader> [description]` - Create a new regime (Don only)
+- `!regime list` - List all regimes in your family
+- `!regime assign <member> <regime_name>` - Assign a member to a regime (Regime Leader only)
+- `!regime distribution <regime_name> add` - Add a regime to automatic distribution (Don only)
+- `!regime distribution <regime_name> remove` - Remove a regime from automatic distribution (Don only)
+- `!regime distribution <regime_name> setcount <number>` - Set target member count for a regime (Don only)
+- `!regime listdistribution` - View current regime distribution settings
+
+The regime distribution system automatically assigns new recruits to regimes based on target member counts:
+- Each regime can have a target member count
+- New recruits are assigned to the regime with the lowest ratio of current members to target members
+- This ensures an even distribution of members across all active regimes
+- Family leaders can adjust target counts at any time to change the distribution
+
+### Assignment Commands
+- `!assignment create <regime_name> <member> <title> <reward> <deadline_hours> <description>` - Create a new assignment (Regime Leader only)
+- `!assignment list [status]` - List assignments for your regime (default: pending)
+- `!assignment complete <assignment_id>` - Mark an assignment as completed
+
+Assignment Statuses:
+- pending: New assignments waiting to be started
+- in_progress: Assignments currently being worked on
+- completed: Successfully completed assignments
+- failed: Failed assignments
+- expired: Assignments that passed their deadline
 
 ## Heist Types
 

@@ -152,53 +152,102 @@ class Turf(commands.Cog):
         except Exception as e:
             await ctx.send(f"An error occurred: {str(e)}")
 
-    @turf.command(name="income")
-    async def collect_income(self, ctx):
-        """Collect income from your family's turfs."""
-        try:
-            # Check if user is in a family
-            user = await supabase.get_user(str(ctx.author.id))
-            if not user or not user.get("family_id"):
-                await ctx.send("You must be in a family to collect turf income!")
+    @commands.command()
+    @commands.cooldown(1, 3600, commands.BucketType.guild)  # 1 hour cooldown
+    async def income(self, ctx):
+        """Collect income from your family's turfs"""
+        # Get user's family
+        family = await self.get_user_family(ctx.author.id)
+        if not family:
+            await ctx.send("You must be in a family to collect turf income.")
+            return
+
+        # Get all turfs controlled by the family
+        turfs = await self.get_family_turfs(family['id'])
+        if not turfs:
+            await ctx.send("Your family doesn't control any turfs.")
+            return
+
+        # Define area types
+        rural_areas = [
+            'Sandy Shores', 'Paleto Bay', 'Grapeseed', 'Mount Chiliad',
+            'Alamo Sea', 'Great Chaparral', 'El Burro Heights'
+        ]
+        
+        special_areas = [
+            'Diamond Casino', 'Los Santos International Airport', 'Maze Bank Tower',
+            'Fort Zancudo', 'Humane Labs', 'Bolingbroke Penitentiary',
+            'Arena Complex', 'Maze Bank Arena'
+        ]
+
+        # Calculate total income
+        total_income = 0
+        income_details = []
+
+        for turf in turfs:
+            # Determine area type
+            is_rural = any(rural in turf['name'] for rural in rural_areas)
+            is_special = any(special in turf['name'] for special in special_areas)
+            
+            # Generate random income based on area type
+            if is_special:
+                random_income = random.randint(5000, 30000)  # Special areas: 5000-30000
+                area_type = "Special"
+            elif is_rural:
+                random_income = random.randint(1000, 5000)  # Rural areas: 1000-5000
+                area_type = "Rural"
+            else:
+                random_income = random.randint(1000, 20000)  # Urban areas: 1000-20000
+                area_type = "Urban"
+            
+            total_income += random_income
+            income_details.append(f"{turf['name']}: ${random_income:,} ({area_type})")
+
+        # Update family balance
+        async with self.bot.pool.acquire() as conn:
+            try:
+                # Update family balance
+                await conn.execute(
+                    """
+                    UPDATE families 
+                    SET balance = balance + $1
+                    WHERE id = $2
+                    """,
+                    total_income, family['id']
+                )
+
+                # Log transaction
+                await conn.execute(
+                    """
+                    INSERT INTO transactions (family_id, amount, type, description)
+                    VALUES ($1, $2, 'turf_income', 'Income from controlled turfs')
+                    """,
+                    family['id'], total_income
+                )
+
+                # Create embed
+                embed = discord.Embed(
+                    title="Turf Income Collected",
+                    description=f"Your family has collected income from {len(turfs)} turfs.",
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="Income Details",
+                    value="\n".join(income_details),
+                    inline=False
+                )
+                embed.add_field(
+                    name="Total Income",
+                    value=f"${total_income:,}",
+                    inline=False
+                )
+                embed.set_footer(text="Income is collected hourly")
+
+                await ctx.send(embed=embed)
+
+            except Exception as e:
+                await ctx.send(f"Error collecting income: {str(e)}")
                 return
-
-            # Get family
-            family = await supabase.get_family(user["family_id"])
-            if not family:
-                await ctx.send("Family not found!")
-                return
-
-            # Get family's turfs
-            turfs = await supabase.get_family_turfs(family["id"])
-            if not turfs:
-                await ctx.send("Your family doesn't own any turfs!")
-                return
-
-            # Calculate total income
-            total_income = sum(turf["income"] for turf in turfs)
-
-            # Update family money
-            new_family_money = family["family_money"] + total_income
-            await supabase.update_family_money(family["id"], new_family_money)
-
-            # Record transaction
-            await supabase.record_transaction(
-                user_id=str(ctx.author.id),
-                amount=total_income,
-                type="turf_income",
-                notes=f"Income from {len(turfs)} turfs",
-                server_id=str(ctx.guild.id)
-            )
-
-            embed = discord.Embed(
-                title="💰 Turf Income Collected",
-                description=f"Your family collected ${total_income:,} from {len(turfs)} turfs!",
-                color=discord.Color.green()
-            )
-            embed.add_field(name="New Family Balance", value=f"${new_family_money:,}")
-            await ctx.send(embed=embed)
-        except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
 
 async def setup(bot):
     await bot.add_cog(Turf(bot)) 

@@ -1,10 +1,13 @@
 import discord
 from discord.ext import commands
-from db.supabase_client import supabase
-from typing import Optional
-from datetime import datetime, timezone
+from discord import app_commands
+from typing import Optional, Union
+from datetime import datetime, timedelta
+import pytz
+from utils.checks import is_family_don, is_family_member
+from utils.database import supabase
 
-class Moderator(commands.Cog):
+class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
@@ -17,7 +20,7 @@ class Moderator(commands.Cog):
     @commands.group(invoke_without_command=True)
     @is_mod()
     async def mod(self, ctx):
-        """Moderator commands for server management."""
+        """Moderation commands for server management"""
         await ctx.send_help(ctx.command)
 
     @mod.command(name="settings")
@@ -112,6 +115,175 @@ class Moderator(commands.Cog):
         except Exception as e:
             await ctx.send(f"An error occurred: {str(e)}")
 
+    @mod.command(name="userinfo")
+    @is_mod()
+    async def user_info(self, ctx, member: discord.Member):
+        """Get detailed information about a user"""
+        try:
+            # Get user data from database
+            user_data = supabase.table('users').select('*').eq('id', str(member.id)).execute()
+            family_data = None
+            regime_data = None
+            hit_stats = None
+            
+            if user_data.data:
+                user = user_data.data[0]
+                # Get family info if user is in a family
+                if user.get('family_id'):
+                    family = supabase.table('families').select('*').eq('id', user['family_id']).execute()
+                    if family.data:
+                        family_data = family.data[0]
+                        # Get regime info
+                        regime = supabase.table('family_members').select('regime_id').eq('user_id', str(member.id)).execute()
+                        if regime.data and regime.data[0].get('regime_id'):
+                            regime_info = supabase.table('regimes').select('*').eq('id', regime.data[0]['regime_id']).execute()
+                            if regime_info.data:
+                                regime_data = regime_info.data[0]
+                
+                # Get hit statistics
+                hit_stats = supabase.table('hit_stats').select('*').eq('user_id', str(member.id)).execute()
+                if hit_stats.data:
+                    hit_stats = hit_stats.data[0]
+
+            # Create embed
+            embed = discord.Embed(
+                title=f"User Information: {member.display_name}",
+                color=member.color
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            
+            # Basic Discord info
+            embed.add_field(
+                name="Discord Info",
+                value=f"ID: {member.id}\n"
+                      f"Joined: <t:{int(member.joined_at.timestamp())}:R>\n"
+                      f"Account Created: <t:{int(member.created_at.timestamp())}:R>",
+                inline=False
+            )
+
+            # Family info
+            if family_data:
+                embed.add_field(
+                    name="Family Info",
+                    value=f"Family: {family_data['name']}\n"
+                          f"Rank: {user.get('family_rank_id', 'None')}\n"
+                          f"Member Since: <t:{int(datetime.fromisoformat(user['created_at'].replace('Z', '+00:00')).timestamp())}:R>",
+                    inline=False
+                )
+
+            # Regime info
+            if regime_data:
+                embed.add_field(
+                    name="Regime Info",
+                    value=f"Regime: {regime_data['name']}\n"
+                          f"Leader: {ctx.guild.get_member(int(regime_data['leader_id'])).mention if ctx.guild.get_member(int(regime_data['leader_id'])) else 'Unknown'}",
+                    inline=False
+                )
+
+            # Hit statistics
+            if hit_stats:
+                success_rate = (hit_stats['successful_hits'] / hit_stats['total_hits'] * 100) if hit_stats['total_hits'] > 0 else 0
+                embed.add_field(
+                    name="Hit Statistics",
+                    value=f"Total Hits: {hit_stats['total_hits']}\n"
+                          f"Successful: {hit_stats['successful_hits']}\n"
+                          f"Failed: {hit_stats['failed_hits']}\n"
+                          f"Success Rate: {success_rate:.1f}%\n"
+                          f"Total Payout: ${hit_stats['total_payout']:,}",
+                    inline=False
+                )
+
+            # Economy info
+            if user_data.data:
+                user = user_data.data[0]
+                embed.add_field(
+                    name="Economy",
+                    value=f"Cash: ${user.get('money', 0):,}\n"
+                          f"Bank: ${user.get('bank', 0):,}",
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send(f"❌ Error getting user info: {str(e)}")
+
+    @mod.command(name="serverstats")
+    @is_mod()
+    async def server_stats(self, ctx):
+        """Get detailed statistics about the server"""
+        try:
+            # Get server data
+            server_data = supabase.table('servers').select('*').eq('id', str(ctx.guild.id)).execute()
+            if not server_data.data:
+                return await ctx.send("❌ Server not found in database.")
+
+            # Get family data
+            families = supabase.table('families').select('*').eq('main_server_id', str(ctx.guild.id)).execute()
+            
+            # Get user statistics
+            users = supabase.table('users').select('*').execute()
+            family_members = supabase.table('family_members').select('*').execute()
+            
+            # Get hit statistics
+            hit_stats = supabase.table('hit_stats').select('*').execute()
+            
+            # Calculate statistics
+            total_users = len(users.data) if users.data else 0
+            total_families = len(families.data) if families.data else 0
+            total_family_members = len(family_members.data) if family_members.data else 0
+            total_hits = sum(stat['total_hits'] for stat in hit_stats.data) if hit_stats.data else 0
+            total_successful_hits = sum(stat['successful_hits'] for stat in hit_stats.data) if hit_stats.data else 0
+            total_payout = sum(stat['total_payout'] for stat in hit_stats.data) if hit_stats.data else 0
+
+            # Create embed
+            embed = discord.Embed(
+                title=f"Server Statistics: {ctx.guild.name}",
+                color=discord.Color.blue()
+            )
+            embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+
+            # Server Info
+            embed.add_field(
+                name="Server Info",
+                value=f"Members: {ctx.guild.member_count}\n"
+                      f"Created: <t:{int(ctx.guild.created_at.timestamp())}:R>",
+                inline=False
+            )
+
+            # Family Statistics
+            embed.add_field(
+                name="Family Statistics",
+                value=f"Total Families: {total_families}\n"
+                      f"Total Family Members: {total_family_members}\n"
+                      f"Average Members per Family: {total_family_members/total_families:.1f}" if total_families > 0 else "No families",
+                inline=False
+            )
+
+            # Hit Statistics
+            success_rate = (total_successful_hits / total_hits * 100) if total_hits > 0 else 0
+            embed.add_field(
+                name="Hit Statistics",
+                value=f"Total Hits: {total_hits}\n"
+                      f"Successful Hits: {total_successful_hits}\n"
+                      f"Success Rate: {success_rate:.1f}%\n"
+                      f"Total Payout: ${total_payout:,}",
+                inline=False
+            )
+
+            # Top Families
+            if families.data:
+                top_families = sorted(families.data, key=lambda x: x.get('reputation', 0), reverse=True)[:5]
+                family_list = "\n".join([f"{i+1}. {f['name']} - Rep: {f.get('reputation', 0)}" for i, f in enumerate(top_families)])
+                embed.add_field(
+                    name="Top 5 Families by Reputation",
+                    value=family_list,
+                    inline=False
+                )
+
+            await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send(f"❌ Error getting server stats: {str(e)}")
+
     @mod.command(name="resetuser")
     @is_mod()
     async def reset_user(self, ctx, member: discord.Member):
@@ -204,45 +376,164 @@ class Moderator(commands.Cog):
         except Exception as e:
             await ctx.send(f"An error occurred: {str(e)}")
 
-    @mod.command(name="activity")
+    @mod.command(name="cleanup")
     @is_mod()
-    async def view_activity(self, ctx, days: Optional[int] = 7):
-        """View server activity for the past X days."""
+    async def cleanup_database(self, ctx):
+        """Clean up database entries for users who have left the server"""
         try:
-            if days < 1 or days > 30:
-                await ctx.send("Days must be between 1 and 30!")
-                return
+            # Get all users in database
+            users = supabase.table('users').select('*').execute()
+            if not users.data:
+                return await ctx.send("No users found in database.")
 
-            # Get server transactions
-            transactions = await supabase.get_server_transactions(str(ctx.guild.id), days)
-            if not transactions:
-                await ctx.send("No activity found for the specified period.")
-                return
+            # Get all server members
+            server_members = set(str(member.id) for member in ctx.guild.members)
 
-            # Group transactions by type
-            transaction_types = {}
-            for transaction in transactions:
-                t_type = transaction["type"]
-                if t_type not in transaction_types:
-                    transaction_types[t_type] = 0
-                transaction_types[t_type] += 1
+            # Find users who have left
+            left_users = [user for user in users.data if user['id'] not in server_members]
 
-            # Create embed
+            if not left_users:
+                return await ctx.send("No cleanup needed - all users are still in the server.")
+
+            # Confirm cleanup
+            confirm_msg = await ctx.send(
+                f"Found {len(left_users)} users who have left the server.\n"
+                "This will remove their data from the database.\n"
+                "React with ✅ to confirm or ❌ to cancel."
+            )
+            await confirm_msg.add_reaction("✅")
+            await confirm_msg.add_reaction("❌")
+
+            def check(reaction, user):
+                return user == ctx.author and str(reaction.emoji) in ["✅", "❌"]
+
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            except TimeoutError:
+                return await ctx.send("Cleanup cancelled - no response received.")
+
+            if str(reaction.emoji) == "❌":
+                return await ctx.send("Cleanup cancelled.")
+
+            # Perform cleanup
+            cleaned = 0
+            for user in left_users:
+                try:
+                    # Remove user data
+                    supabase.table('users').delete().eq('id', user['id']).execute()
+                    supabase.table('family_members').delete().eq('user_id', user['id']).execute()
+                    supabase.table('hit_stats').delete().eq('user_id', user['id']).execute()
+                    cleaned += 1
+                except Exception as e:
+                    print(f"Error cleaning up user {user['id']}: {str(e)}")
+
+            await ctx.send(f"✅ Cleanup complete. Removed data for {cleaned} users.")
+        except Exception as e:
+            await ctx.send(f"❌ Error during cleanup: {str(e)}")
+
+    @mod.command(name="backup")
+    @is_mod()
+    async def backup_database(self, ctx):
+        """Create a backup of important server data"""
+        try:
+            # Get all important data
+            families = supabase.table('families').select('*').execute()
+            users = supabase.table('users').select('*').execute()
+            family_members = supabase.table('family_members').select('*').execute()
+            hit_stats = supabase.table('hit_stats').select('*').execute()
+            regimes = supabase.table('regimes').select('*').execute()
+
+            # Create backup file
+            backup_data = {
+                'timestamp': datetime.now(pytz.UTC).isoformat(),
+                'server_id': str(ctx.guild.id),
+                'server_name': ctx.guild.name,
+                'families': families.data if families.data else [],
+                'users': users.data if users.data else [],
+                'family_members': family_members.data if family_members.data else [],
+                'hit_stats': hit_stats.data if hit_stats.data else [],
+                'regimes': regimes.data if regimes.data else []
+            }
+
+            # Save to file
+            filename = f"backup_{ctx.guild.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(filename, 'w') as f:
+                import json
+                json.dump(backup_data, f, indent=2)
+
+            # Send file
+            await ctx.send("✅ Backup created successfully!", file=discord.File(filename))
+        except Exception as e:
+            await ctx.send(f"❌ Error creating backup: {str(e)}")
+
+    @mod.command(name="audit")
+    @is_mod()
+    async def audit_log(self, ctx, days: int = 7):
+        """View recent server activity audit log"""
+        try:
+            # Get recent transactions
+            transactions = supabase.table('transactions').select('*').gte('timestamp', (datetime.now(pytz.UTC) - timedelta(days=days)).isoformat()).execute()
+            
+            # Get recent hit contracts
+            hits = supabase.table('hit_contracts').select('*').gte('created_at', (datetime.now(pytz.UTC) - timedelta(days=days)).isoformat()).execute()
+            
+            # Get recent family changes
+            family_changes = supabase.table('family_members').select('*').gte('created_at', (datetime.now(pytz.UTC) - timedelta(days=days)).isoformat()).execute()
+
             embed = discord.Embed(
-                title=f"📊 Server Activity (Last {days} days)",
+                title=f"Server Audit Log - Last {days} Days",
                 color=discord.Color.blue()
             )
 
-            for t_type, count in transaction_types.items():
+            # Transaction summary
+            if transactions.data:
+                total_transactions = len(transactions.data)
+                total_amount = sum(t['amount'] for t in transactions.data)
                 embed.add_field(
-                    name=t_type.replace("_", " ").title(),
-                    value=str(count),
-                    inline=True
+                    name="Transaction Summary",
+                    value=f"Total Transactions: {total_transactions}\n"
+                          f"Total Amount: ${total_amount:,}",
+                    inline=False
+                )
+
+            # Hit contract summary
+            if hits.data:
+                total_hits = len(hits.data)
+                successful_hits = len([h for h in hits.data if h['status'] == 'completed'])
+                embed.add_field(
+                    name="Hit Contract Summary",
+                    value=f"Total Contracts: {total_hits}\n"
+                          f"Successful Hits: {successful_hits}\n"
+                          f"Success Rate: {(successful_hits/total_hits*100):.1f}%",
+                    inline=False
+                )
+
+            # Family changes summary
+            if family_changes.data:
+                new_members = len(family_changes.data)
+                embed.add_field(
+                    name="Family Changes",
+                    value=f"New Family Members: {new_members}",
+                    inline=False
+                )
+
+            # Recent activity
+            recent_activity = []
+            for t in transactions.data[:5]:
+                recent_activity.append(f"Transaction: ${t['amount']:,} - {t['type']}")
+            for h in hits.data[:5]:
+                recent_activity.append(f"Hit Contract: {h['status']} - ${h['reward']:,}")
+            
+            if recent_activity:
+                embed.add_field(
+                    name="Recent Activity",
+                    value="\n".join(recent_activity),
+                    inline=False
                 )
 
             await ctx.send(embed=embed)
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            await ctx.send(f"❌ Error generating audit log: {str(e)}")
 
     @mod.command(name="ban")
     @is_mod()
@@ -325,31 +616,27 @@ class Moderator(commands.Cog):
     async def create_turfs(self, ctx):
         """Create GTA V turfs for the server."""
         try:
-            # Define GTA V turfs with their locations and base income
+            # Define GTA V turfs with their locations
             turfs = [
                 # Los Santos City Center
                 {
                     "name": "Vinewood Hills",
                     "description": "Luxury residential area with high-end properties and celebrity homes",
-                    "income": 5000,
                     "gta_coordinates": "Vinewood Hills"
                 },
                 {
                     "name": "Downtown Los Santos",
                     "description": "Business district with corporate offices and financial institutions",
-                    "income": 4500,
                     "gta_coordinates": "Downtown LS"
                 },
                 {
                     "name": "Vinewood Boulevard",
                     "description": "Entertainment district with clubs, theaters, and tourist attractions",
-                    "income": 4000,
                     "gta_coordinates": "Vinewood Blvd"
                 },
                 {
                     "name": "Rockford Hills",
                     "description": "Upscale shopping district with luxury boutiques",
-                    "income": 4200,
                     "gta_coordinates": "Rockford Hills"
                 },
                 
@@ -357,19 +644,16 @@ class Moderator(commands.Cog):
                 {
                     "name": "Vespucci Beach",
                     "description": "Popular beach area with tourist attractions and nightlife",
-                    "income": 3500,
                     "gta_coordinates": "Vespucci Beach"
                 },
                 {
                     "name": "Del Perro Beach",
                     "description": "Coastal area with beachfront properties and pier",
-                    "income": 3200,
                     "gta_coordinates": "Del Perro Beach"
                 },
                 {
                     "name": "Terminal",
                     "description": "Port area with shipping facilities and warehouses",
-                    "income": 3800,
                     "gta_coordinates": "Terminal"
                 },
                 
@@ -377,19 +661,16 @@ class Moderator(commands.Cog):
                 {
                     "name": "Strawberry",
                     "description": "Working-class neighborhood with local businesses",
-                    "income": 3000,
                     "gta_coordinates": "Strawberry"
                 },
                 {
                     "name": "Grove Street",
                     "description": "Historic gang territory with street influence",
-                    "income": 2800,
                     "gta_coordinates": "Grove Street"
                 },
                 {
                     "name": "Davis",
                     "description": "Urban neighborhood with street markets",
-                    "income": 2500,
                     "gta_coordinates": "Davis"
                 },
                 
@@ -397,13 +678,11 @@ class Moderator(commands.Cog):
                 {
                     "name": "La Mesa",
                     "description": "Industrial area with warehouses and factories",
-                    "income": 3200,
                     "gta_coordinates": "La Mesa"
                 },
                 {
                     "name": "El Burro Heights",
                     "description": "Residential area with local businesses",
-                    "income": 2200,
                     "gta_coordinates": "El Burro Heights"
                 },
                 
@@ -411,33 +690,28 @@ class Moderator(commands.Cog):
                 {
                     "name": "Mirror Park",
                     "description": "Hipster neighborhood with art galleries and cafes",
-                    "income": 2800,
                     "gta_coordinates": "Mirror Park"
                 },
                 {
                     "name": "Burton",
                     "description": "Residential area with shopping centers",
-                    "income": 2600,
                     "gta_coordinates": "Burton"
                 },
                 
-                # Blaine County
+                # Blaine County (Rural Areas)
                 {
                     "name": "Sandy Shores",
                     "description": "Desert town with local businesses and airfield",
-                    "income": 2000,
                     "gta_coordinates": "Sandy Shores"
                 },
                 {
                     "name": "Paleto Bay",
                     "description": "Coastal town with fishing industry and small businesses",
-                    "income": 2200,
                     "gta_coordinates": "Paleto Bay"
                 },
                 {
                     "name": "Grapeseed",
                     "description": "Agricultural area with farms and rural businesses",
-                    "income": 1800,
                     "gta_coordinates": "Grapeseed"
                 },
                 
@@ -445,146 +719,91 @@ class Moderator(commands.Cog):
                 {
                     "name": "Fort Zancudo",
                     "description": "Military base with restricted access",
-                    "income": 4800,
                     "gta_coordinates": "Fort Zancudo"
                 },
                 {
                     "name": "Los Santos International Airport",
                     "description": "Major transportation hub with cargo facilities",
-                    "income": 4600,
                     "gta_coordinates": "LSIA"
                 },
                 {
                     "name": "Maze Bank Tower",
                     "description": "Financial district with corporate headquarters",
-                    "income": 5200,
                     "gta_coordinates": "Maze Bank"
                 },
                 
-                # Arena and Entertainment
+                # Arena and Entertainment (Special Areas)
                 {
                     "name": "Arena Complex",
                     "description": "Massive entertainment complex hosting deathmatches and vehicle battles",
-                    "income": 5500,
                     "gta_coordinates": "Arena War"
                 },
                 {
                     "name": "Diamond Casino",
                     "description": "Luxury casino and resort with high-stakes gambling",
-                    "income": 6000,
                     "gta_coordinates": "Diamond Casino"
                 },
                 {
                     "name": "Maze Bank Arena",
                     "description": "Sports and entertainment venue for major events",
-                    "income": 4800,
                     "gta_coordinates": "Maze Bank Arena"
                 },
                 {
                     "name": "Galileo Observatory",
                     "description": "Historic landmark with tourist attractions",
-                    "income": 2800,
                     "gta_coordinates": "Galileo"
                 },
                 
-                # Industrial and Manufacturing
+                # Industrial and Manufacturing (Special Areas)
                 {
                     "name": "Humane Labs",
                     "description": "Research facility with valuable technology",
-                    "income": 4500,
                     "gta_coordinates": "Humane Labs"
                 },
                 {
                     "name": "Bolingbroke Penitentiary",
                     "description": "Maximum security prison with restricted access",
-                    "income": 4200,
                     "gta_coordinates": "Bolingbroke"
                 },
                 {
                     "name": "Palmer-Taylor Power Station",
                     "description": "Major power generation facility",
-                    "income": 3800,
                     "gta_coordinates": "Power Station"
                 },
                 
-                # Additional Areas
+                # Additional Areas (Rural)
                 {
                     "name": "Mount Chiliad",
                     "description": "Mountain area with tourist attractions and hiking trails",
-                    "income": 2200,
                     "gta_coordinates": "Mount Chiliad"
                 },
                 {
                     "name": "Alamo Sea",
                     "description": "Large lake area with recreational activities",
-                    "income": 2000,
                     "gta_coordinates": "Alamo Sea"
                 },
                 {
                     "name": "Great Chaparral",
                     "description": "Rural area with ranches and farms",
-                    "income": 1800,
                     "gta_coordinates": "Great Chaparral"
                 }
             ]
 
-            # Create turfs
-            success = await supabase.create_server_turfs(str(ctx.guild.id), turfs)
-            
-            if success:
-                embed = discord.Embed(
-                    title="🏢 Turfs Created",
-                    description="Successfully created GTA V turfs for the server!",
-                    color=discord.Color.green()
-                )
-                
-                # Group turfs by region for better organization
-                regions = {
-                    "Los Santos City Center": [],
-                    "Beach and Port Areas": [],
-                    "South Los Santos": [],
-                    "East Los Santos": [],
-                    "North Los Santos": [],
-                    "Blaine County": [],
-                    "Special Areas": [],
-                    "Arena and Entertainment": [],
-                    "Industrial and Manufacturing": [],
-                    "Additional Areas": []
-                }
-                
+            # Create turfs in database
+            async with self.bot.pool.acquire() as conn:
                 for turf in turfs:
-                    if "Vinewood" in turf["name"] or "Downtown" in turf["name"] or "Rockford" in turf["name"]:
-                        regions["Los Santos City Center"].append(turf)
-                    elif "Beach" in turf["name"] or "Terminal" in turf["name"]:
-                        regions["Beach and Port Areas"].append(turf)
-                    elif turf["name"] in ["Strawberry", "Grove Street", "Davis"]:
-                        regions["South Los Santos"].append(turf)
-                    elif "La Mesa" in turf["name"] or "El Burro" in turf["name"]:
-                        regions["East Los Santos"].append(turf)
-                    elif "Mirror" in turf["name"] or "Burton" in turf["name"]:
-                        regions["North Los Santos"].append(turf)
-                    elif turf["name"] in ["Sandy Shores", "Paleto Bay", "Grapeseed"]:
-                        regions["Blaine County"].append(turf)
-                    elif turf["name"] in ["Fort Zancudo", "Los Santos International Airport", "Maze Bank Tower"]:
-                        regions["Special Areas"].append(turf)
-                    elif "Arena" in turf["name"] or "Casino" in turf["name"] or "Observatory" in turf["name"]:
-                        regions["Arena and Entertainment"].append(turf)
-                    elif "Labs" in turf["name"] or "Penitentiary" in turf["name"] or "Power" in turf["name"]:
-                        regions["Industrial and Manufacturing"].append(turf)
-                    else:
-                        regions["Additional Areas"].append(turf)
-                
-                # Add fields for each region
-                for region, region_turfs in regions.items():
-                    if region_turfs:
-                        value = "\n".join([f"• {turf['name']} (${turf['income']:,}/hour)" for turf in region_turfs])
-                        embed.add_field(name=region, value=value, inline=False)
-                
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send("Failed to create turfs. Please try again.")
+                    await conn.execute(
+                        """
+                        INSERT INTO turfs (name, description, gta_coordinates)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (name) DO NOTHING
+                        """,
+                        turf['name'], turf['description'], turf['gta_coordinates']
+                    )
+
+            await ctx.send(f"Successfully created {len(turfs)} turfs!")
         except Exception as e:
-            await ctx.send(f"An error occurred: {str(e)}")
+            await ctx.send(f"Error creating turfs: {str(e)}")
 
 async def setup(bot):
-    await bot.add_cog(Moderator(bot)) 
+    await bot.add_cog(Moderation(bot)) 

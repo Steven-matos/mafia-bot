@@ -298,7 +298,25 @@ class Recruitment(commands.Cog):
                         "status": "completed",
                         "completed_at": datetime.now(timezone.utc).isoformat()
                     })
-                    await ctx.send(f"🎉 {member.mention} has completed the recruitment process!")
+
+                    # Get optimal regime for distribution
+                    assignments_cog = ctx.bot.get_cog('Assignments')
+                    if assignments_cog:
+                        optimal_regime_id = await assignments_cog.get_optimal_regime(family["id"])
+                        
+                        if optimal_regime_id:
+                            # Assign to optimal regime
+                            await supabase.table('family_members').update({
+                                'regime_id': optimal_regime_id
+                            }).eq('user_id', str(member.id)).execute()
+                            
+                            regime = supabase.table('regimes').select('name').eq('id', optimal_regime_id).execute()
+                            regime_name = regime.data[0]['name'] if regime.data else "Unknown"
+                            await ctx.send(f"🎉 {member.mention} has completed the recruitment process and been assigned to the **{regime_name}** regime!")
+                        else:
+                            await ctx.send(f"🎉 {member.mention} has completed the recruitment process!")
+                    else:
+                        await ctx.send(f"🎉 {member.mention} has completed the recruitment process!")
                 else:
                     # Move to next step
                     next_step = next((s for s in steps if s["step_number"] == step_number + 1), None)

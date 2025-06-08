@@ -37,7 +37,6 @@ CREATE TABLE users (
     last_daily TIMESTAMP WITH TIME ZONE,
     last_work TIMESTAMP WITH TIME ZONE,
     last_rob TIMESTAMP WITH TIME ZONE,
-    last_heist TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
@@ -116,7 +115,6 @@ CREATE TABLE server_settings (
     prefix TEXT DEFAULT '!',
     daily_amount INTEGER DEFAULT 1000,
     turf_capture_cooldown INTEGER DEFAULT 24,
-    heist_cooldown INTEGER DEFAULT 12,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
@@ -722,4 +720,81 @@ CREATE POLICY "Family leaders can manage mentorships"
 
 CREATE POLICY "Mentors can update their own mentorships"
     ON mentorships FOR UPDATE
-    USING (mentor_id = auth.uid()); 
+    USING (mentor_id = auth.uid());
+
+-- Update users table
+ALTER TABLE users 
+DROP COLUMN IF EXISTS last_heist;
+
+-- Update server_settings table
+ALTER TABLE server_settings 
+DROP COLUMN IF EXISTS heist_cooldown;
+
+-- Update items table to remove heist-specific items
+DELETE FROM items WHERE name = 'c4';
+
+-- Add GTA V roleplay specific items
+INSERT INTO items (name, description, price, type, is_tradeable) VALUES
+('pistol', 'Standard issue pistol', 5000, 'weapon', TRUE),
+('smg', 'Submachine gun', 10000, 'weapon', TRUE),
+('shotgun', 'Pump-action shotgun', 15000, 'weapon', TRUE),
+('rifle', 'Assault rifle', 20000, 'weapon', TRUE),
+('armor', 'Basic body armor', 5000, 'armor', TRUE),
+('heavy_armor', 'Heavy body armor', 10000, 'armor', TRUE),
+('phone', 'Mobile phone for communications', 1000, 'tool', TRUE),
+('lockpick', 'Tool for breaking into vehicles', 2000, 'tool', TRUE),
+('first_aid', 'Basic medical supplies', 1000, 'medical', TRUE),
+('bandage', 'For treating wounds', 500, 'medical', TRUE);
+
+-- Regimes table
+CREATE TABLE IF NOT EXISTS regimes (
+    id SERIAL PRIMARY KEY,
+    family_id INTEGER REFERENCES families(id) ON DELETE CASCADE,
+    name VARCHAR(50) NOT NULL,
+    description TEXT,
+    leader_id BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(family_id, name)
+);
+
+-- Assignments table
+CREATE TABLE IF NOT EXISTS assignments (
+    id SERIAL PRIMARY KEY,
+    family_id INTEGER REFERENCES families(id) ON DELETE CASCADE,
+    regime_id INTEGER REFERENCES regimes(id) ON DELETE CASCADE,
+    title VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    reward_amount INTEGER NOT NULL,
+    deadline TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_by BIGINT NOT NULL,
+    assigned_to BIGINT,
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    CHECK (status IN ('pending', 'in_progress', 'completed', 'failed', 'expired'))
+);
+
+-- Add regime_id to family_members table
+ALTER TABLE family_members ADD COLUMN IF NOT EXISTS regime_id INTEGER REFERENCES regimes(id) ON DELETE SET NULL;
+
+-- Remove RP-specific tables if they exist
+DROP TABLE IF EXISTS rp_events;
+DROP TABLE IF EXISTS rp_contracts;
+DROP TABLE IF EXISTS rp_proof;
+
+-- Remove RP-specific columns if they exist
+ALTER TABLE users DROP COLUMN IF EXISTS rp_level;
+ALTER TABLE users DROP COLUMN IF EXISTS rp_xp;
+ALTER TABLE users DROP COLUMN IF EXISTS last_rp_action;
+
+-- Regime distribution settings table
+CREATE TABLE IF NOT EXISTS regime_distribution (
+    id SERIAL PRIMARY KEY,
+    family_id INTEGER REFERENCES families(id) ON DELETE CASCADE,
+    regime_id INTEGER REFERENCES regimes(id) ON DELETE CASCADE,
+    is_active BOOLEAN DEFAULT true,
+    target_member_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(family_id, regime_id)
+); 

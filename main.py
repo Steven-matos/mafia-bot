@@ -31,18 +31,19 @@ bot = commands.Bot(
 )
 
 # List of cogs to load
-COGS = [
+INITIAL_EXTENSIONS = [
     'cogs.economy',
-    'cogs.turf',
     'cogs.family',
-    'cogs.rp_events',
-    'cogs.help',
+    'cogs.turf',
+    'cogs.moderator',
     'cogs.hits',
     'cogs.relationships',
     'cogs.ranks',
     'cogs.channels',
     'cogs.mentorship',
-    'cogs.recruitment'
+    'cogs.recruitment',
+    'cogs.assignments',
+    'cogs.help'
 ]
 
 @bot.event
@@ -121,7 +122,7 @@ async def register_server(guild):
 
 def load_extensions():
     """Load all bot extensions."""
-    for extension in COGS:
+    for extension in INITIAL_EXTENSIONS:
         try:
             bot.load_extension(extension)
             logger.info(f"Loaded extension: {extension}")
