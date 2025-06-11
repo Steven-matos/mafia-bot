@@ -1238,5 +1238,38 @@ class SupabaseClient:
             print(f"Error getting hit verification: {str(e)}")
             return None
 
-# Create a singleton instance
-supabase = SupabaseClient() 
+    async def get_upcoming_meetings(self, server_id: str, limit: int = 10) -> List[Dict]:
+        """
+        Get upcoming meetings for a server.
+        :param server_id: The server ID
+        :param limit: Maximum number of meetings to return
+        :return: List of upcoming meetings
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            response = self.client.table("meetings") \
+                .select("*") \
+                .eq("server_id", server_id) \
+                .gte("meeting_time", now.isoformat()) \
+                .order("meeting_time") \
+                .limit(limit) \
+                .execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error getting upcoming meetings: {str(e)}")
+            return []
+
+# Singleton instance
+_supabase_client = None
+
+def get_supabase_client() -> SupabaseClient:
+    """
+    Get or create a singleton instance of SupabaseClient.
+    """
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = SupabaseClient()
+    return _supabase_client
+
+# Create global instance for backward compatibility
+supabase = get_supabase_client() 

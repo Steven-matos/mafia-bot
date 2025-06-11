@@ -109,7 +109,8 @@ class Help(commands.Cog):
                     "resetfamily": "Reset a family's data (removes all members, resets balance)",
                     "cleanup": "Clean up database entries for users who have left the server",
                     "backup": "Create a backup of important server data",
-                    "audit": "View recent server activity audit log"
+                    "audit": "View recent server activity audit log",
+                    "createuser": "Manually create a user in the database"
                 }
                 
                 for cmd, desc in mod_commands.items():

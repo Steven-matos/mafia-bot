@@ -1,13 +1,16 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from db.supabase_client import get_supabase_client
+from db.supabase_client import supabase
 from typing import Optional, List
+import logging
+
+logger = logging.getLogger('mafia-bot')
 
 class Channels(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.supabase = get_supabase_client()
+        self.supabase = supabase
         self.announcement_types = {
             'all': 'All announcements',
             'family': 'Family-related announcements',

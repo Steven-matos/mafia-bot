@@ -5,7 +5,10 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Optional
 from utils.checks import is_family_don, is_regime_leader, is_family_member
-from utils.database import supabase
+from db.supabase_client import supabase
+import logging
+
+logger = logging.getLogger('mafia-bot')
 
 class Assignments(commands.Cog):
     def __init__(self, bot):

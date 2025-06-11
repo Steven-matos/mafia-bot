@@ -2,11 +2,11 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
 import logging
 from utils.checks import is_family_don, is_family_member
-from utils.database import supabase
+from db.supabase_client import supabase
 
 logger = logging.getLogger('mafia-bot')
 
@@ -17,6 +17,107 @@ MIN_COOLDOWN = 1  # Minimum cooldown in hours
 MAX_COOLDOWN = 168  # Maximum cooldown in hours (1 week)
 MAX_AUDIT_DAYS = 30  # Maximum days for audit log
 MAX_BAN_REASON_LENGTH = 1000  # Maximum length for ban reason
+
+class CreateUserModal(discord.ui.Modal, title='Create New User'):
+    def __init__(self, member: discord.Member):
+        super().__init__()
+        self.member = member
+        
+        # Add form fields
+        self.initial_money = discord.ui.TextInput(
+            label='Initial Money',
+            placeholder='Enter starting money amount (default: 0)',
+            required=False,
+            default='0'
+        )
+        self.initial_bank = discord.ui.TextInput(
+            label='Initial Bank Balance',
+            placeholder='Enter starting bank balance (default: 0)',
+            required=False,
+            default='0'
+        )
+        self.psn = discord.ui.TextInput(
+            label='PlayStation Network ID',
+            placeholder='Enter PSN ID (optional)',
+            required=False
+        )
+        self.notes = discord.ui.TextInput(
+            label='Notes',
+            placeholder='Any additional notes about this user',
+            required=False,
+            style=discord.TextStyle.paragraph
+        )
+        
+        # Add fields to modal
+        self.add_item(self.initial_money)
+        self.add_item(self.initial_bank)
+        self.add_item(self.psn)
+        self.add_item(self.notes)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            # Validate money inputs
+            try:
+                money = int(self.initial_money.value) if self.initial_money.value else 0
+                bank = int(self.initial_bank.value) if self.initial_bank.value else 0
+                if money < 0 or bank < 0:
+                    await interaction.response.send_message("❌ Money and bank values cannot be negative!", ephemeral=True)
+                    return
+            except ValueError:
+                await interaction.response.send_message("❌ Money and bank values must be valid numbers!", ephemeral=True)
+                return
+
+            # Check if user already exists
+            user = await supabase.get_user(str(self.member.id))
+            if user:
+                await interaction.response.send_message(f"❌ User {self.member.mention} already exists in the database!", ephemeral=True)
+                return
+
+            # Create user data
+            user_data = {
+                "id": str(self.member.id),
+                "username": self.member.name,
+                "money": money,
+                "bank": bank,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+
+            # Add PSN if provided
+            if self.psn.value:
+                # Check if PSN is already taken
+                existing_user = supabase.table('users').select('id').eq('psn', self.psn.value).execute()
+                if existing_user.data:
+                    await interaction.response.send_message("❌ This PSN is already registered to another user!", ephemeral=True)
+                    return
+                user_data["psn"] = self.psn.value
+
+            # Create user
+            success = await supabase.create_user(str(self.member.id), self.member.name)
+            if success:
+                # Add user to server
+                await supabase.add_user_to_server(str(self.member.id), str(interaction.guild_id))
+                
+                # Update user with form data
+                await supabase.update_user(str(self.member.id), user_data)
+                
+                # Create embed for confirmation
+                embed = discord.Embed(
+                    title="✅ User Created Successfully",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="User", value=self.member.mention, inline=True)
+                embed.add_field(name="Initial Money", value=f"${money:,}", inline=True)
+                embed.add_field(name="Initial Bank", value=f"${bank:,}", inline=True)
+                if self.psn.value:
+                    embed.add_field(name="PSN ID", value=self.psn.value, inline=True)
+                if self.notes.value:
+                    embed.add_field(name="Notes", value=self.notes.value, inline=False)
+                
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message("❌ Failed to create user. Please try again.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ An error occurred: {str(e)}", ephemeral=True)
 
 class Moderator(commands.Cog):
     def __init__(self, bot):
@@ -995,5 +1096,22 @@ class Moderator(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ An error occurred: {str(e)}")
 
+    @mod.command(name="createuser")
+    @is_mod()
+    async def create_user(self, ctx, member: discord.Member):
+        """Manually create a user in the database using a form."""
+        try:
+            # Create and show the modal
+            modal = CreateUserModal(member)
+            await ctx.send("Please fill out the form to create the user:")
+            await ctx.send_modal(modal)
+        except Exception as e:
+            await ctx.send(f"❌ An error occurred: {str(e)}")
+
 async def setup(bot):
-    await bot.add_cog(Moderator(bot)) 
+    """Add the Moderator cog to the bot."""
+    try:
+        await bot.add_cog(Moderator(bot))
+        logger.info("Moderator cog loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load Moderator cog: {e}") 

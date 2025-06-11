@@ -79,6 +79,7 @@ async def on_member_join(member):
 async def on_command_error(ctx, error):
     """Global error handler for commands."""
     if isinstance(error, commands.CommandNotFound):
+        logger.error(f"Command not found: {ctx.message.content}")
         return
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"Missing required argument: {error.param.name}")
@@ -88,6 +89,10 @@ async def on_command_error(ctx, error):
         await ctx.send("You don't have permission to use this command.")
     else:
         logger.error(f"Command error: {error}")
+        logger.error(f"Command context: {ctx.message.content}")
+        logger.error(f"User: {ctx.author} (ID: {ctx.author.id})")
+        logger.error(f"Channel: {ctx.channel} (ID: {ctx.channel.id})")
+        logger.error(f"Guild: {ctx.guild} (ID: {ctx.guild.id})")
         await ctx.send("An error occurred while processing the command.")
 
 @bot.event
