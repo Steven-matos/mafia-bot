@@ -85,8 +85,8 @@ class CreateUserModal(discord.ui.Modal, title='Create New User'):
             # Add PSN if provided
             if self.psn.value:
                 # Check if PSN is already taken
-                existing_user = supabase.table('users').select('id').eq('psn', self.psn.value).execute()
-                if existing_user.data:
+                existing_user = await supabase.get_user_by_psn(self.psn.value)
+                if existing_user:
                     await interaction.response.send_message("❌ This PSN is already registered to another user!", ephemeral=True)
                     return
                 user_data["psn"] = self.psn.value
@@ -1101,10 +1101,31 @@ class Moderator(commands.Cog):
     async def create_user(self, ctx, member: discord.Member):
         """Manually create a user in the database using a form."""
         try:
-            # Create and show the modal
+            # Create the modal
             modal = CreateUserModal(member)
-            await ctx.send("Please fill out the form to create the user:")
-            await ctx.send_modal(modal)
+            
+            # Create a button to open the modal
+            class OpenModalButton(discord.ui.View):
+                def __init__(self, modal):
+                    super().__init__(timeout=None)  # Make the view persistent
+                    self.modal = modal
+                
+                @discord.ui.button(label="Open Form", style=discord.ButtonStyle.primary)
+                async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    try:
+                        # Ensure the interaction is from the command author
+                        if interaction.user.id != ctx.author.id:
+                            await interaction.response.send_message("❌ Only the command author can use this button.", ephemeral=True)
+                            return
+                            
+                        # Send the modal
+                        await interaction.response.send_modal(self.modal)
+                    except Exception as e:
+                        await interaction.response.send_message(f"❌ Error opening form: {str(e)}", ephemeral=True)
+            
+            # Send message with button
+            view = OpenModalButton(modal)
+            await ctx.send(f"Click the button below to create a user for {member.mention}:", view=view)
         except Exception as e:
             await ctx.send(f"❌ An error occurred: {str(e)}")
 

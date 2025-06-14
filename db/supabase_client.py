@@ -199,6 +199,18 @@ class SupabaseClient:
 
         return await self._execute_with_rate_limit('read', user_id, _get_user)
 
+    async def get_user_by_psn(self, psn: str) -> Optional[Dict]:
+        """Get user data by PSN ID."""
+        async def _get_user_by_psn():
+            try:
+                response = self.client.table("users").select("*").eq("psn", psn).execute()
+                return response.data[0] if response.data else None
+            except Exception as e:
+                logger.error(f"Error getting user by PSN: {e}")
+                return None
+
+        return await self._execute_with_rate_limit('read', f"psn:{psn}", _get_user_by_psn)
+
     async def create_user(self, user_id: str, username: str) -> bool:
         """Create a new user in the database."""
         async def _create_user():
