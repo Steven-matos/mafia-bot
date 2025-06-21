@@ -24,39 +24,56 @@ intents.presences = True
 # Default prefix for the bot
 DEFAULT_PREFIX = '!'
 
-bot = commands.Bot(
-    command_prefix=DEFAULT_PREFIX,
-    intents=intents,
-    help_command=None  # We'll implement a custom help command
-)
+class MafiaBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix=DEFAULT_PREFIX,
+            intents=intents,
+            help_command=None  # We'll implement a custom help command
+        )
+        self.initial_extensions = [
+            'cogs.economy',
+            'cogs.family',
+            'cogs.turf',
+            'cogs.moderator',
+            'cogs.hits',
+            'cogs.relationships',
+            'cogs.ranks',
+            'cogs.channels',
+            'cogs.mentorship',
+            'cogs.recruitment',
+            'cogs.assignments',
+            'cogs.meetings',
+            'cogs.help'
+        ]
 
-# List of cogs to load
-INITIAL_EXTENSIONS = [
-    'cogs.economy',
-    'cogs.family',
-    'cogs.turf',
-    'cogs.moderator',
-    'cogs.hits',
-    'cogs.relationships',
-    'cogs.ranks',
-    'cogs.channels',
-    'cogs.mentorship',
-    'cogs.recruitment',
-    'cogs.assignments',
-    'cogs.meetings',
-    'cogs.help'
-]
+    async def setup_hook(self):
+        """Initialize bot and sync commands."""
+        for extension in self.initial_extensions:
+            try:
+                await self.load_extension(extension)
+                logger.info(f"Loaded extension: {extension}")
+            except Exception as e:
+                logger.error(f"Failed to load extension {extension}: {e}")
+        
+        # Sync commands with Discord
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"Synced {len(synced)} command(s)")
+        except Exception as e:
+            logger.error(f"Failed to sync commands: {e}")
 
-@bot.event
-async def on_ready():
-    """Called when the bot is ready and connected to Discord."""
-    logger.info(f'Logged in as {bot.user.name} (ID: {bot.user.id})')
-    await bot.change_presence(
-        activity=discord.Game(name="GTA V Crime Family RP | !help")
-    )
-    # Register all servers the bot is in
-    for guild in bot.guilds:
-        await register_server(guild)
+    async def on_ready(self):
+        """Called when the bot is ready and connected to Discord."""
+        logger.info(f'Logged in as {self.user.name} (ID: {self.user.id})')
+        await self.change_presence(
+            activity=discord.Game(name="GTA V Crime Family RP | /help")
+        )
+        # Register all servers the bot is in
+        for guild in self.guilds:
+            await register_server(guild)
+
+bot = MafiaBot()
 
 @bot.event
 async def on_guild_join(guild):
@@ -73,7 +90,7 @@ async def on_member_join(member):
             server_id=str(member.guild.id)
         )
     except Exception as e:
-        print(f"Error adding user to server: {e}")
+        logger.error(f"Error adding user to server: {e}")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -109,7 +126,7 @@ async def on_command(ctx):
             await ctx.send("You are banned from using the bot in this server.")
             ctx.command_failed = True
     except Exception as e:
-        print(f"Error checking user ban status: {str(e)}")
+        logger.error(f"Error checking user ban status: {str(e)}")
 
 async def register_server(guild):
     """Register a server in the database."""
@@ -126,19 +143,9 @@ async def register_server(guild):
     except Exception as e:
         logger.error(f"Error registering server {guild.name}: {e}")
 
-async def load_extensions():
-    """Load all bot extensions."""
-    for extension in INITIAL_EXTENSIONS:
-        try:
-            await bot.load_extension(extension)
-            logger.info(f"Loaded extension: {extension}")
-        except Exception as e:
-            logger.error(f"Failed to load extension {extension}: {e}")
-
 async def main():
     """Main entry point for the bot."""
     async with bot:
-        await load_extensions()
         await bot.start(os.getenv('DISCORD_TOKEN'))
 
 if __name__ == "__main__":

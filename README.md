@@ -13,6 +13,10 @@ A Discord bot for GTA V crime family roleplay servers, featuring a persistent ec
 - 🎒 Inventory system
 - 👥 Regime system for family organization
 - 📝 Assignment system for regime members
+- 🔄 Hybrid commands (both slash commands and prefix commands)
+- 🎨 Rich embeds and interactive components
+- 📱 Modal forms for complex interactions
+- ⚡ Improved error handling and logging
 
 ## Setup
 
@@ -43,113 +47,113 @@ python main.py
 
 ## Commands
 
-All commands use the prefix `!` by default. You can check your server's prefix using `!prefix`.
+The bot supports both slash commands (`/`) and prefix commands (`!`). You can check your server's prefix using `!prefix` or `/prefix`.
 
 ### Economy Commands
 
-- `!balance` - Check your current balance
-- `!daily` - Collect your daily money (24h cooldown)
-- `!transfer @user amount` - Transfer money to another user
-- `!deposit amount` - Deposit money into your bank account
-- `!withdraw amount` - Withdraw money from your bank account
-- `!rob @user` - Attempt to rob another user (30% success rate)
-- `!leaderboard` - View the server's wealth leaderboard
+- `/balance [member]` - Check your or another user's balance
+- `/daily` - Collect your daily money (24h cooldown)
+- `/transfer <member> <amount>` - Transfer money to another user
+- `/deposit <amount>` - Deposit money into your bank account
+- `/withdraw <amount>` - Withdraw money from your bank account
+- `/rob <member>` - Attempt to rob another user (30% success rate)
+- `/leaderboard` - View the server's wealth leaderboard
 
 ### Family Commands
 
-- `!family create name` - Create a new crime family
-- `!family info [name]` - View family information
-- `!family accept invite_id` - Accept a family invite
-- `!family leave` - Leave your current family
-- `!family transfer @user` - Transfer family leadership to another member
+- `/family create <name>` - Create a new crime family
+- `/family info [name]` - View family information
+- `/family accept <invite_id>` - Accept a family invite
+- `/family leave` - Leave your current family
+- `/family transfer <member>` - Transfer family leadership to another member
 
 ### Turf Commands
 
-- `!turf list` - List all available turfs
-- `!turf info <name>` - View detailed information about a specific turf
-- `!turf capture <name>` - Attempt to capture a turf for your family
-- `!income` - Collect income from your family's turfs (1h cooldown)
+- `/turf list` - List all available turfs
+- `/turf info <name>` - View detailed information about a specific turf
+- `/turf capture <name>` - Attempt to capture a turf for your family
+- `/income` - Collect income from your family's turfs (1h cooldown)
 
 ### Moderator Commands
 
-- `!mod settings` - View current server settings
-- `!mod setprefix prefix` - Set the server's command prefix
-- `!mod setdaily amount` - Set the daily reward amount
-- `!mod setcooldown <type> <hours>` - Set cooldown for turf capture
+- `/mod settings` - View current server settings
+- `/mod setprefix <prefix>` - Set the server's command prefix
+- `/mod setdaily <amount>` - Set the daily reward amount
+- `/mod setcooldown <type> <hours>` - Set cooldown for turf capture
   - Types: turf
-- `!mod createturfs` - Create all GTA V turfs for the server
-- `!mod ban @user [reason]` - Ban a user from using the bot in this server
-- `!mod unban @user` - Unban a user from using the bot in this server
-- `!mod banned` - List all banned users
-- `!mod userinfo @user` - Get detailed information about a user
+- `/mod createturfs` - Create all GTA V turfs for the server
+- `/mod ban <member> [reason]` - Ban a user from using the bot in this server
+- `/mod unban <member>` - Unban a user from using the bot in this server
+- `/mod banned` - List all banned users
+- `/mod userinfo <member>` - Get detailed information about a user
   - Shows Discord info, family info, regime info, hit statistics, and economy info
-- `!mod serverstats` - View detailed server statistics
+- `/mod serverstats` - View detailed server statistics
   - Shows member counts, family statistics, hit statistics, and top families
-- `!mod resetuser @user` - Reset a user's data (removes from family, resets balance)
-- `!mod resetfamily family_name` - Reset a family's data (removes all members, resets balance)
-- `!mod cleanup` - Clean up database entries for users who have left the server
+- `/mod resetuser <member>` - Reset a user's data (removes from family, resets balance)
+- `/mod resetfamily <family_name>` - Reset a family's data (removes all members, resets balance)
+- `/mod cleanup` - Clean up database entries for users who have left the server
   - Removes data for users no longer in the server
   - Requires confirmation before proceeding
-- `!mod backup` - Create a backup of important server data
+- `/mod backup` - Create a backup of important server data
   - Exports families, users, family members, hit stats, and regimes to a JSON file
-- `!mod audit [days]` - View recent server activity audit log
+- `/mod audit [days]` - View recent server activity audit log
   - Shows transaction summaries, hit contract statistics, and family changes
   - Default time period is 7 days
 
 ### Hit System Commands
 
-- `!hit request <target> <target_psn> <reward> <description>` - Request a hit contract (Made Men and higher only)
-- `!hit list` - List all active hit contracts
-- `!hit complete <contract_id> <proof_url>` - Complete a hit contract with proof
+- `/hit request <target> <target_psn> <reward> <description>` - Request a hit contract (Made Men and higher only)
+- `/hit list` - List all active hit contracts
+- `/hit complete <contract_id> <proof_url>` - Complete a hit contract with proof
   - `proof_url`: URL to image/video proof of the hit
   - Proof will be reviewed by family leadership
-- `!hit verify <contract_id> <status> [reason]` - Verify a completed hit (Don/Godfather/Underboss only)
+- `/hit verify <contract_id> <status> [reason]` - Verify a completed hit (Don/Godfather/Underboss only)
   - `status`: approved or rejected
   - `reason`: Optional reason for the decision
-- `!hit proof <contract_id>` - View the proof for a completed hit
-- `!hit stats [member]` - View hit statistics for yourself or another member
+- `/hit proof <contract_id>` - View the proof for a completed hit
+- `/hit stats [member]` - View hit statistics for yourself or another member
   - Shows total hits, successful hits, failed hits, success rate, and total payout
-- `!hit leaderboard [scope]` - View hit statistics leaderboard
+- `/hit leaderboard [scope]` - View hit statistics leaderboard
   - `scope`: family (default) or server
   - Shows top hit contractors ranked by successful hits
 
 ### Family Relationship Commands
 
-- `!relationship alliance family_name notes` - Create an alliance with another family (Don only)
+- `/relationship alliance <family_name> <notes>` - Create an alliance with another family (Don only)
   - Requires being a family leader
   - Cannot ally with own family
   - Includes notes about the alliance
-- `!relationship kos family_name reason` - Declare another family as KOS (Don only)
+- `/relationship kos <family_name> <reason>` - Declare another family as KOS (Don only)
   - Requires being a family leader
   - Cannot declare own family as KOS
   - Includes reason for KOS declaration
-- `!relationship remove family_name` - Remove a relationship with another family (Don only)
-- `!relationship list [family_name]` - List all relationships for a family
+- `/relationship remove <family_name>` - Remove a relationship with another family (Don only)
+- `/relationship list [family_name]` - List all relationships for a family
   - Shows both alliances and KOS declarations
   - Can view any family's relationships
   - Includes timestamps and notes/reasons
 
 ### Family Rank Commands
 
-- `!rank create name display_name emoji order` - Create a new family rank (Don only)
+- `/rank create <name> <display_name> <emoji> <order>` - Create a new family rank (Don only)
   - Requires being a family leader
-  - Example: `!rank create godfather "God Father" 👑 1`
-- `!rank list [family_name]` - List all ranks for a family
+  - Example: `/rank create godfather "God Father" 👑 1`
+- `/rank list [family_name]` - List all ranks for a family
   - Shows ranks in order from highest to lowest
   - Can view any family's ranks
-- `!rank set @member rank_name` - Set a member's family rank (Don only)
+- `/rank set <member> <rank_name>` - Set a member's family rank (Don only)
   - Requires being a family leader
   - Member must be in your family
-- `!rank delete rank_name` - Delete a family rank (Don only)
+- `/rank delete <rank_name>` - Delete a family rank (Don only)
   - Requires being a family leader
   - Cannot delete ranks that are in use
-- `!rank update rank_name field value` - Update a rank's properties (Don only)
+- `/rank update <rank_name> <field> <value>` - Update a rank's properties (Don only)
   - Requires being a family leader
   - Fields: display_name, emoji, rank_order
 
 ### Bot Channel Commands
 
-- `!channel set <channel> <type> [announcement_type] [interval_minutes]` - Set a channel for bot announcements
+- `/channel set <channel> <type> [announcement_type] [interval_minutes]` - Set a channel for bot announcements
   - `type`: The type of channel (announcements, logs, etc.)
   - `announcement_type`: Type of announcements to send (default: all)
     - `all`: All announcements
@@ -159,40 +163,40 @@ All commands use the prefix `!` by default. You can check your server's prefix u
     - `hits`: Hit-related announcements
     - `mentorship`: Mentorship-related announcements
   - `interval_minutes`: How often to send announcements (default: 60)
-- `!channel list` - List all configured bot channels and their settings
-- `!channel update <channel> <announcement_type> [interval_minutes] [enabled]` - Update settings for a specific channel and announcement type
-- `!channel remove <channel> <announcement_type>` - Remove a specific announcement type from a channel
-- `!channel types` - List all available announcement types
+- `/channel list` - List all configured bot channels and their settings
+- `/channel update <channel> <announcement_type> [interval_minutes] [enabled]` - Update settings for a specific channel and announcement type
+- `/channel remove <channel> <announcement_type>` - Remove a specific announcement type from a channel
+- `/channel types` - List all available announcement types
 
 ### Mentorship Commands
 
-- `!mentor assign @mentor @mentee [notes]` - Assign a mentor to a mentee (Don only)
+- `/mentor assign <mentor> <mentee> [notes]` - Assign a mentor to a mentee (Don only)
   - Mentor must be a Made Man or Capo
   - Mentee must be a Recruit
   - Optional notes for the mentorship
-- `!mentor list [family_name]` - List all active mentorships for a family
-- `!mentor end @mentee [reason]` - End a mentorship relationship (Don only)
-- `!mentor my` - View your current mentorship relationships
+- `/mentor list [family_name]` - List all active mentorships for a family
+- `/mentor end <mentee> [reason]` - End a mentorship relationship (Don only)
+- `/mentor my` - View your current mentorship relationships
 
 ### Recruitment Commands
 
-- `!recruitment addstep step_number title [requires_image] description` - Add a new step to the recruitment process (Don only)
-- `!recruitment remove step_number` - Remove a recruitment step (Don only)
+- `/recruitment addstep <step_number> <title> [requires_image] <description>` - Add a new step to the recruitment process (Don only)
+- `/recruitment remove <step_number>` - Remove a recruitment step (Don only)
 
 ### Help Commands
 
-- `!help` - Show the main help menu
-- `!help <command>` - Show detailed help for a specific command
-- `!prefix` - Show the bot's command prefix
+- `/help` - Show the main help menu
+- `/help <command>` - Show detailed help for a specific command
+- `/prefix` - Show the bot's command prefix
 
 ### Regime Commands
-- `!regime create <name> <leader> [description]` - Create a new regime (Don only)
-- `!regime list` - List all regimes in your family
-- `!regime assign <member> <regime_name>` - Assign a member to a regime (Regime Leader only)
-- `!regime distribution <regime_name> add` - Add a regime to automatic distribution (Don only)
-- `!regime distribution <regime_name> remove` - Remove a regime from automatic distribution (Don only)
-- `!regime distribution <regime_name> setcount <number>` - Set target member count for a regime (Don only)
-- `!regime listdistribution` - View current regime distribution settings
+- `/regime create <name> <leader> [description]` - Create a new regime (Don only)
+- `/regime list` - List all regimes in your family
+- `/regime assign <member> <regime_name>` - Assign a member to a regime (Regime Leader only)
+- `/regime distribution <regime_name> add` - Add a regime to automatic distribution (Don only)
+- `/regime distribution <regime_name> remove` - Remove a regime from automatic distribution (Don only)
+- `/regime distribution <regime_name> setcount <number>` - Set target member count for a regime (Don only)
+- `/regime listdistribution` - View current regime distribution settings
 
 The regime distribution system automatically assigns new recruits to regimes based on target member counts:
 - Each regime can have a target member count
@@ -201,9 +205,9 @@ The regime distribution system automatically assigns new recruits to regimes bas
 - Family leaders can adjust target counts at any time to change the distribution
 
 ### Assignment Commands
-- `!assignment create <regime_name> <member> <title> <reward> <deadline_hours> <description>` - Create a new assignment (Regime Leader only)
-- `!assignment list [status]` - List assignments for your regime (default: pending)
-- `!assignment complete <assignment_id>` - Mark an assignment as completed
+- `/assignment create <regime_name> <member> <title> <reward> <deadline_hours> <description>` - Create a new assignment (Regime Leader only)
+- `/assignment list [status]` - List assignments for your regime (default: pending)
+- `/assignment complete <assignment_id>` - Mark an assignment as completed
 
 Assignment Statuses:
 - pending: New assignments waiting to be started
